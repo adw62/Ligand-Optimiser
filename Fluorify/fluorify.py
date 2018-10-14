@@ -4,11 +4,10 @@ from .energy import FSim
 from .mol2 import Mol2, MutatedLigand
 
 import time
-
 import numpy as np
 
 class FluorineScanning(object):
-    def __init__(self, input_folder, output_folder, mol_file,
+    def __init__(self, input_folder, output_folder, mol_file, ligand_name,
                  complex_pdb_file, complex_prmtop_file, traj_file, job_type):
         mol = Mol2()
         try:
@@ -39,7 +38,7 @@ class FluorineScanning(object):
 
         print('Calculating Energies...')
         t0 = time.time()
-        F = FSim(ligand_name='MOL', pdb_file=complex_pdb_file,
+        F = FSim(ligand_name=ligand_name, pdb_file=complex_pdb_file,
                     sim_file=complex_prmtop_file, sim_dir=input_folder)
 
 
@@ -63,11 +62,6 @@ class FluorineScanning(object):
         t1 = time.time()
         print('Took {} seconds'.format(t1 - t0))
 
-        # better file pointing
-        # chosse directory structure and point to approriate places
-
-        # calcualte free energy
-        # find lowest free energy
         # how can this be called many times for optimiztion
 
     def free_energy(mutant_energy, wildtype_energies):

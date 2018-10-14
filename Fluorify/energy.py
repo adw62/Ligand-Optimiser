@@ -16,8 +16,7 @@ class FSim(object):
         make some energy data structure
         """
         FSim.create_simuation(self, pdb_file, sim_file, sim_dir)
-        if ligand_atom == None:
-            FSim.get_ligand_atoms(self, ligand_name)
+        FSim.get_ligand_atoms(self, ligand_name)
 
     def create_simuation(self, pdb_file, sim_file, sim_dir):
         pdb = app.PDBFile(sim_dir + pdb_file)

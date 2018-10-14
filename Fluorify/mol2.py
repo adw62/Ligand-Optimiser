@@ -73,14 +73,6 @@ class Mol2(object):
                     bonded_h.append(bond[0])
         return bonded_h
 
-    """
-        for bond in bonds:
-            if bond[1] in atoms:
-                if bond[0] in hydrogens:
-                    if bond[2] in hydrogens:
-                        bonded_h.append(bond[0])
-    """
-
     def mutate_one_element(self, atom, new_element):
         new_atom_data = []
         if new_element == None:

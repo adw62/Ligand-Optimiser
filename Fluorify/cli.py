@@ -1,8 +1,8 @@
 #!/usr/local/bin/env python
 
-import os
 from .fluorify import FluorineScanning
 from docopt import docopt
+
 # =============================================================================================
 # COMMAND-LINE INTERFACE
 # =============================================================================================
@@ -10,7 +10,7 @@ from docopt import docopt
 usage = """
 FLUORIFY
 Usage:
-  Fluorify [--input_folder=STRING] [--output_folder=STRING] [--mol_file=STRING] [--complex_pdb_file=STRING] 
+  Fluorify [--input=STRING] [--output=STRING] [--mol_file=STRING] [--ligand_name=STRING] [--complex_pdb_file=STRING] 
            [--complex_prmtop_file=STRING] [--traj_file=STRING] [--job_type=STRING]...
 """
 
@@ -20,14 +20,14 @@ def main(argv=None):
 
     msg = 'No {0} specified using default {1}'
 
-    if args['--input_folder']:
-        input_folder = args['--input_folder']
+    if args['--input']:
+        input_folder = args['--input']
     else:
         input_folder = './input/'
         print(msg.format('input folder', input_folder))
 
-    if args['--output_folder']:
-        output_folder  = args['--output_folder']
+    if args['--output']:
+        output_folder = args['--output']
     else:
         output_folder = './output/'
         print(msg.format('output folder', output_folder))
@@ -37,6 +37,12 @@ def main(argv=None):
     else:
         mol_file ='ligand.mol2'
         print(msg.format('mol file', mol_file))
+
+    if args['--ligand_name']:
+        ligand_name = args['--ligand_name']
+    else:
+        ligand_name ='MOL'
+        print(msg.format('ligand name', ligand_name))
 
     if args['--complex_pdb_file']:
         complex_pdb_file  = args['--complex_pdb_file']
@@ -53,11 +59,11 @@ def main(argv=None):
     if args['--traj_file']:
         traj_file  = args['--traj_file']
     else:
-        traj_file  = 'input.dcd'
+        traj_file = 'input.dcd'
         print(msg.format('trajectory file', traj_file))
 
     if args['--job_type']:
-        job_type = args['--job_type']
+        job_type = args['--job_type'][0]
         allowed_elements = ['F', 'Cl']
         allowed_carbon_types = ['1', '2', '3', 'ar']
         job_type = job_type.split('_')
@@ -71,6 +77,6 @@ def main(argv=None):
         job_type = ['F', 'ar']
         print(msg.format('job_type', job_type))
 
-    FluorineScanning(input_folder, output_folder, mol_file,
+    FluorineScanning(input_folder, output_folder, mol_file, ligand_name,
                         complex_pdb_file, complex_prmtop_file, traj_file, job_type)
 
