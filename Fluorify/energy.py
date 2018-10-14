@@ -27,7 +27,15 @@ class FSim(object):
         positions_file_path = sim_dir + sim_file + '.inpcrd'
         parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
         positions_file = mm.app.AmberInpcrdFile(positions_file_path)
-        self.system_save = parameters_file.createSystem()
+
+        #put every force in different force group
+        system = parameters_file.createSystem()
+        for force_index, force in enumerate(system.getForces()):
+            if isinstance(force, mm.NonbondedForce):
+                self.nonbonded_index = force_index
+            force.setForceGroup(force_index)
+        self.system_save = system
+
         integrator = mm.LangevinIntegrator(300 * unit.kelvin, 1.0 / unit.picoseconds,
                                            1.0 * unit.femtoseconds)
         platform = mm.Platform.getPlatformByName('CUDA')
@@ -42,6 +50,7 @@ class FSim(object):
 
     def update_simulation(self, src_system):
         ###Credit to Lee-Ping Wang for update simulation and associated functions
+        ### This is only updating nonbonded forces as other forces dont change.
         dest_simulation = self.simulation
         CopySystemParameters(src_system, dest_simulation.system)
         for i in range(src_system.getNumForces()):
@@ -65,20 +74,44 @@ class FSim(object):
             nonbonded_force.setParticleParameters(index, charge[i], sigma, epsilon)
         FSim.update_simulation(self, system)
 
-    def get_wildtype_energy():
-        pass
+
+    def get_wildtype_energy(self, traj):
+        """
+
+        :param traj:
+        :return: return wildtype ligand as list of frame wise energies
+        """
+        #reset simulation
+        FSim.update_simulation(self, self.system_save)
+
+        wildtype_frame_energies = []
+        append = wildtype_frame_energies.append
+        for frame in traj:
+            self.simulation.context.setPositions(frame.xyz[0])
+            State = self.simulation.context.getState(getEnergy=True, groups={self.nonbonded_index})
+            append(State.getPotentialEnergy() / unit.kilojoule_per_mole)
+
+        return wildtype_frame_energies
 
     def get_mutant_energy(self, charges, traj):
-        all_mutant_energies = []
+        """
+
+        :param charges:
+        :param traj:
+        :return: list of mutant energies each mutant is list of frame wise energies
+        """
+        mutants_frame_energies = []
         for charge in charges:
             mutant_energies = []
             FSim.apply_charges(self, charge)
+            append = mutant_energies.append
             for frame in traj:
                 self.simulation.context.setPositions(frame.xyz[0])
-                State = self.simulation.context.getState(getEnergy=True)
-                mutant_energies.append(State.getPotentialEnergy() / unit.kilojoule_per_mole)
-            all_mutant_energies.append(mutant_energies)
-        return all_mutant_energies
+                State = self.simulation.context.getState(getEnergy=True, groups={self.nonbonded_index})
+                append(State.getPotentialEnergy() / unit.kilojoule_per_mole)
+            mutants_frame_energies.append(mutant_energies)
+
+        return mutants_frame_energies
 
 def CopyAmoebaBondParameters(src,dest):
     dest.setAmoebaGlobalBondCubic(src.getAmoebaGlobalBondCubic())
@@ -160,22 +193,12 @@ def CopySystemParameters(src,dest):
     """Copy parameters from one system (i.e. that which is created by a new force field)
     sto another system (i.e. the one stored inside the Target object).
     DANGER: These need to be implemented manually!!!"""
-    Copiers = {'AmoebaBondForce':CopyAmoebaBondParameters,
-               'AmoebaOutOfPlaneBendForce':CopyAmoebaOutOfPlaneBendParameters,
-               'AmoebaAngleForce':CopyAmoebaAngleParameters,
-               'AmoebaInPlaneAngleForce':CopyAmoebaInPlaneAngleParameters,
-               'AmoebaVdwForce':CopyAmoebaVdwParameters,
-               'AmoebaMultipoleForce':CopyAmoebaMultipoleParameters,
-               'HarmonicBondForce':CopyHarmonicBondParameters,
-               'HarmonicAngleForce':CopyHarmonicAngleParameters,
-               'PeriodicTorsionForce':CopyPeriodicTorsionParameters,
-               'NonbondedForce':CopyNonbondedParameters,
-               'CustomNonbondedForce':CopyCustomNonbondedParameters,
-               'GBSAOBCForce':CopyGBSAOBCParameters,
-               'CMMotionRemover':do_nothing}
+    Copiers = {'NonbondedForce':CopyNonbondedParameters,
+               'CustomNonbondedForce':CopyCustomNonbondedParameters}
     for i in range(src.getNumForces()):
         nm = src.getForce(i).__class__.__name__
         if nm in Copiers:
             Copiers[nm](src.getForce(i),dest.getForce(i))
         else:
-            print('There is no Copier function implemented for the OpenMM force type %s!' % nm)
+            pass
+            #print('There is no Copier function implemented for the OpenMM force type %s!' % nm)
