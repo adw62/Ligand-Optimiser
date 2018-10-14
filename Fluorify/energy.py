@@ -8,7 +8,7 @@ import copy
 
 class FSim(object):
     def __init__(self, ligand_name, ligand_atom=None, pdb_file='complex', sim_file='complex',
-                 sim_dir='../complex_input/'):
+                 sim_dir='./input/'):
         """
         Take pdb and dcd for full simulation
         find OG ligand

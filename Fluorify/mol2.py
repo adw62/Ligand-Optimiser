@@ -116,30 +116,26 @@ class Mol2(object):
 
 
 class MutatedLigand(object):
-    def __init__(self, file_path, file_name, prmout=None):
+    def __init__(self, file_path, file_name):
         extension = os.path.splitext(file_name)[1]
         if extension == '.mol2':
-            MutatedLigand.run_ante(file_path, file_name, prmout)
-            MutatedLigand.create_system(self, file_path, file_name)
-        elif extension == '.prmtop':
+            MutatedLigand.run_ante(file_path, file_name)
             MutatedLigand.create_system(self, file_path, file_name)
         else:
-            logging.error('Input not reconised')
+            logging.error('Input {} not found or incorrect format'.format(file_path + file_name))
 
     def create_system(self, file_path, file_name):
         # PRMOUT MUST BE SET HERE TO HAVE AN EFFECT ON CHRAGE
-        parameters_file_path = '/home/cdt1605/FlorineScaning/MOL.prmtop'
-        positions_file_path = '/home/cdt1605/FlorineScaning/MOL.inpcrd'
+        parameters_file_path = file_path + 'MOL.prmtop'
+        positions_file_path = file_path + 'MOL.inpcrd'
         parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
         positions_file = mm.app.AmberInpcrdFile(positions_file_path)
         self.system = parameters_file.createSystem()
 
-    def run_ante(file_path, file_name, prmout):
-        if prmout == None:
-            prmout = '../MOL'
-        moltool.amber.run_antechamber(molecule_name='../MOL', input_filename=file_path + file_name)
-        moltool.amber.run_tleap(molecule_name=prmout, gaff_mol2_filename='../MOL.gaff.mol2',
-                                frcmod_filename='../MOL.frcmod')
+    def run_ante(file_path, file_name):
+        moltool.amber.run_antechamber(molecule_name=file_path+'MOL', input_filename=file_path + file_name)
+        moltool.amber.run_tleap(molecule_name=file_path+'MOL', gaff_mol2_filename=file_path+'MOL.gaff.mol2',
+                                frcmod_filename=file_path+'MOL.frcmod')
 
     def get_charge(self):
         system = self.system
