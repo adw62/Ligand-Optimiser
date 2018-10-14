@@ -3,12 +3,19 @@
 from .energy import FSim
 from .mol2 import Mol2, MutatedLigand
 
+import os
 import time
 import numpy as np
 
 class FluorineScanning(object):
     def __init__(self, input_folder, output_folder, mol_file, ligand_name,
                  complex_pdb_file, complex_prmtop_file, traj_file, job_type):
+
+        try:
+            os.makedirs(output_folder)
+        except:
+            raise ValueError('Could not create output folder {}'.format(output_folder))
+
         mol = Mol2()
         try:
             Mol2.get_data(mol, input_folder, mol_file)

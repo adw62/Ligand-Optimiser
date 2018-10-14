@@ -6,7 +6,7 @@ from docopt import docopt
 # =============================================================================================
 # COMMAND-LINE INTERFACE
 # =============================================================================================
-##input_folder=None, output_folder=None, mol_file=None, complex_file=None, job_type=None):
+
 usage = """
 FLUORIFY
 Usage:
