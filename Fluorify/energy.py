@@ -113,70 +113,12 @@ class FSim(object):
 
         return mutants_frame_energies
 
-def CopyAmoebaBondParameters(src,dest):
-    dest.setAmoebaGlobalBondCubic(src.getAmoebaGlobalBondCubic())
-    dest.setAmoebaGlobalBondQuartic(src.getAmoebaGlobalBondQuartic())
-    for i in range(src.getNumBonds()):
-        dest.setBondParameters(i,*src.getBondParameters(i))
-
-def CopyAmoebaOutOfPlaneBendParameters(src,dest):
-    dest.setAmoebaGlobalOutOfPlaneBendCubic(src.getAmoebaGlobalOutOfPlaneBendCubic())
-    dest.setAmoebaGlobalOutOfPlaneBendQuartic(src.getAmoebaGlobalOutOfPlaneBendQuartic())
-    dest.setAmoebaGlobalOutOfPlaneBendPentic(src.getAmoebaGlobalOutOfPlaneBendPentic())
-    dest.setAmoebaGlobalOutOfPlaneBendSextic(src.getAmoebaGlobalOutOfPlaneBendSextic())
-    for i in range(src.getNumOutOfPlaneBends()):
-        dest.setOutOfPlaneBendParameters(i,*src.getOutOfPlaneBendParameters(i))
-
-def CopyAmoebaAngleParameters(src, dest):
-    dest.setAmoebaGlobalAngleCubic(src.getAmoebaGlobalAngleCubic())
-    dest.setAmoebaGlobalAngleQuartic(src.getAmoebaGlobalAngleQuartic())
-    dest.setAmoebaGlobalAnglePentic(src.getAmoebaGlobalAnglePentic())
-    dest.setAmoebaGlobalAngleSextic(src.getAmoebaGlobalAngleSextic())
-    for i in range(src.getNumAngles()):
-        dest.setAngleParameters(i,*src.getAngleParameters(i))
-    return
-
-def CopyAmoebaInPlaneAngleParameters(src, dest):
-    dest.setAmoebaGlobalInPlaneAngleCubic(src.getAmoebaGlobalInPlaneAngleCubic())
-    dest.setAmoebaGlobalInPlaneAngleQuartic(src.getAmoebaGlobalInPlaneAngleQuartic())
-    dest.setAmoebaGlobalInPlaneAnglePentic(src.getAmoebaGlobalInPlaneAnglePentic())
-    dest.setAmoebaGlobalInPlaneAngleSextic(src.getAmoebaGlobalInPlaneAngleSextic())
-    for i in range(src.getNumAngles()):
-        dest.setAngleParameters(i,*src.getAngleParameters(i))
-    return
-
-def CopyAmoebaVdwParameters(src, dest):
-    for i in range(src.getNumParticles()):
-        dest.setParticleParameters(i,*src.getParticleParameters(i))
-
-def CopyAmoebaMultipoleParameters(src, dest):
-    for i in range(src.getNumMultipoles()):
-        dest.setMultipoleParameters(i,*src.getMultipoleParameters(i))
-
-def CopyHarmonicBondParameters(src, dest):
-    for i in range(src.getNumBonds()):
-        dest.setBondParameters(i,*src.getBondParameters(i))
-
-def CopyHarmonicAngleParameters(src, dest):
-    for i in range(src.getNumAngles()):
-        dest.setAngleParameters(i,*src.getAngleParameters(i))
-
-def CopyPeriodicTorsionParameters(src, dest):
-    for i in range(src.getNumTorsions()):
-        dest.setTorsionParameters(i,*src.getTorsionParameters(i))
-
 def CopyNonbondedParameters(src, dest):
     dest.setReactionFieldDielectric(src.getReactionFieldDielectric())
     for i in range(src.getNumParticles()):
         dest.setParticleParameters(i,*src.getParticleParameters(i))
     for i in range(src.getNumExceptions()):
         dest.setExceptionParameters(i,*src.getExceptionParameters(i))
-
-def CopyGBSAOBCParameters(src, dest):
-    dest.setSolventDielectric(src.getSolventDielectric())
-    dest.setSoluteDielectric(src.getSoluteDielectric())
-    for i in range(src.getNumParticles()):
-        dest.setParticleParameters(i,*src.getParticleParameters(i))
 
 def CopyCustomNonbondedParameters(src, dest):
     '''
