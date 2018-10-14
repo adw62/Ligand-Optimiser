@@ -7,8 +7,7 @@ import mdtraj as md
 import copy
 
 class FSim(object):
-    def __init__(self, ligand_name, ligand_atom=None, pdb_file='complex', sim_file='complex',
-                 sim_dir='./input/'):
+    def __init__(self, ligand_name, pdb_file, sim_file, sim_dir):
         """
         Take pdb and dcd for full simulation
         find OG ligand
@@ -21,12 +20,12 @@ class FSim(object):
             FSim.get_ligand_atoms(self, ligand_name)
 
     def create_simuation(self, pdb_file, sim_file, sim_dir):
-        pdb = app.PDBFile(sim_dir + pdb_file + '.pdb')
-        self.snapshot = md.load(sim_dir + pdb_file + '.pdb')
-        parameters_file_path = sim_dir + sim_file + '.prmtop'
-        positions_file_path = sim_dir + sim_file + '.inpcrd'
+        pdb = app.PDBFile(sim_dir + pdb_file)
+        self.snapshot = md.load(sim_dir + pdb_file)
+        parameters_file_path = sim_dir + sim_file
         parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
-        positions_file = mm.app.AmberInpcrdFile(positions_file_path)
+        #positions_file_path = sim_dir + sim_file + '.inpcrd'
+        #positions_file = mm.app.AmberInpcrdFile(positions_file_path)
 
         #put every force in different force group
         system = parameters_file.createSystem()
