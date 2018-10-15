@@ -5,11 +5,15 @@ from .mol2 import Mol2, MutatedLigand
 
 import os
 import time
-import numpy as np
+import mdtraj as md
 
 class FluorineScanning(object):
     def __init__(self, input_folder, output_folder, mol_file, ligand_name,
-                 complex_pdb_file, complex_prmtop_file, traj_file, job_type):
+                 complex_name, solvent_name, job_type):
+
+        mol_file = mol_file + '.mol2'
+        complex_sim_dir = input_folder + complex_name + '/'
+        solvent_sim_dir = input_folder + solvent_name + '/'
 
         try:
             os.makedirs(output_folder)
@@ -43,54 +47,23 @@ class FluorineScanning(object):
         for ligand in mutated_ligands:
             ligand_charges.append(ligand.get_charge())
 
+
         print('Calculating Energies...')
         t0 = time.time()
-        F = FSim(ligand_name=ligand_name, pdb_file=complex_pdb_file,
-                    sim_file=complex_prmtop_file, sim_dir=input_folder)
 
+        #COMPLEX
+        complex_traj = md.load(complex_sim_dir + complex_name + '.pdb') #PDB FOR TESTING
+        complex = FSim(ligand_name=ligand_name, sim_name=complex_name, input_folder=input_folder)
+        complex_free_energy = FSim.treat_phase(complex, ligand_charges, complex_traj)
+        print(complex_free_energy)
 
-        ##########################
-        # load traj to apply charges to and calculate energies from
-        traj = []
-        for i in range(1):
-            traj.append(F.snapshot)
-        ###########################
-
-
-        wildtype_energy = FSim.get_wildtype_energy(F, traj)
-        mutant_energy = FSim.get_mutant_energy(F, ligand_charges, traj)
-
-        print(FluorineScanning.free_energy(mutant_energy, wildtype_energy))
-
-        # biggest energy differnce will be biggest free energy differnce
-        for ligand in mutant_energy:
-            print(ligand[0] - wildtype_energy[0])#zeros because only one frame for now
+        #SOLVENT
+        #solvent_traj = md.load(solvent_sim_dir + solvent_name + '.pdb') #PDB FOR TESTING
+        #solvent = FSim(ligand_name=ligand_name, sim_name=solvent_name, input_folder=input_folder)
+        #solvent_free_energy = FSim.treat_phase(solvent, ligand_charges, complex_traj)
 
         t1 = time.time()
         print('Took {} seconds'.format(t1 - t0))
 
-        # how can this be called many times for optimiztion
-
-    def free_energy(mutant_energy, wildtype_energies):
-
-        kB = 0.008314472471220214
-        T = 300
-        kT = kB * T
-        ans = []
-        for ligand in mutant_energy:
-            energies = 0.0
-            for i in range(len(wildtype_energies)):
-                energies += (np.exp(-(ligand[i] - wildtype_energies[i]) / kT))
-            ans.append(energies / len(wildtype_energies))
-        final = 0.0
-        H_idx = 0
-        for i, energy in enumerate(ans):
-            tmp = -kB * T * np.log(energy) / 1000  # not sure of unit CHECK!!!
-            if tmp <= final:
-                final = tmp
-                H_idx = i
-            return final, H_idx
-
-
-
-
+        # How can this be called many times for optimiztion
+        # Check free energy calculation

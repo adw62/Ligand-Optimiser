@@ -4,10 +4,16 @@ from simtk.openmm import app
 import simtk.openmm as mm
 from simtk import unit
 import mdtraj as md
+import numpy as np
 import copy
 
+#Constants
+kB = 0.008314472471220214
+T = 300
+kT = kB * T
+
 class FSim(object):
-    def __init__(self, ligand_name, pdb_file, sim_file, sim_dir):
+    def __init__(self, ligand_name, sim_name, input_folder):
         """
         Take pdb and dcd for full simulation
         find OG ligand
@@ -15,13 +21,14 @@ class FSim(object):
         get energy of sim
         make some energy data structure
         """
-        FSim.create_simuation(self, pdb_file, sim_file, sim_dir)
+        sim_dir = input_folder + sim_name + '/'
+        FSim.create_simuation(self, sim_name, sim_dir)
         FSim.get_ligand_atoms(self, ligand_name)
 
-    def create_simuation(self, pdb_file, sim_file, sim_dir):
-        pdb = app.PDBFile(sim_dir + pdb_file)
-        self.snapshot = md.load(sim_dir + pdb_file)
-        parameters_file_path = sim_dir + sim_file
+    def create_simuation(self, sim_name, sim_dir):
+        pdb = app.PDBFile(sim_dir + sim_name + '.pdb')
+        self.snapshot = md.load(sim_dir + sim_name + '.pdb')
+        parameters_file_path = sim_dir + sim_name + '.prmtop'
         parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
         #positions_file_path = sim_dir + sim_file + '.inpcrd'
         #positions_file = mm.app.AmberInpcrdFile(positions_file_path)
@@ -110,6 +117,26 @@ class FSim(object):
             mutants_frame_energies.append(mutant_energies)
 
         return mutants_frame_energies
+
+    def treat_phase(self, ligand_charges, traj):
+        wildtype_energy = FSim.get_wildtype_energy(self, traj)
+        mutant_energy = FSim.get_mutant_energy(self, ligand_charges, traj)
+        phase_free_energy = free_energy(mutant_energy, wildtype_energy)
+        return phase_free_energy
+
+
+def free_energy(mutant_energy, wildtype_energy):
+    ans = []
+    free_energy = []
+    for ligand in mutant_energy:
+        tmp = 0.0
+        for i in range(len(wildtype_energy)):
+            print(ligand[i] - wildtype_energy[i])
+            tmp += (np.exp(-(ligand[i] - wildtype_energy[i]) / kT))
+        ans.append(tmp / len(wildtype_energy))
+    for energy in ans:
+        free_energy.append(-kB * T * np.log(energy) / 1000.0)  # not sure of unit CHECK!!!
+    return free_energy
 
 def CopyNonbondedParameters(src, dest):
     dest.setReactionFieldDielectric(src.getReactionFieldDielectric())
