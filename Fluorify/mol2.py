@@ -112,16 +112,16 @@ class MutatedLigand(object):
         extension = os.path.splitext(file_name)[1]
         if extension == '.mol2':
             MutatedLigand.run_ante(file_path, file_name)
-            MutatedLigand.create_system(self, file_path, file_name)
+            MutatedLigand.create_system(self, file_path)
         else:
             logging.error('Input {} not found or incorrect format'.format(file_path + file_name))
 
-    def create_system(self, file_path, file_name):
-        # PRMOUT MUST BE SET HERE TO HAVE AN EFFECT ON CHRAGE
+    def create_system(self, file_path):
+        # PRMOUT MUST BE SET HERE TO HAVE AN EFFECT ON CHARGE
         parameters_file_path = file_path + 'MOL.prmtop'
-        positions_file_path = file_path + 'MOL.inpcrd'
         parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
-        positions_file = mm.app.AmberInpcrdFile(positions_file_path)
+        #positions_file_path = file_path + 'MOL.inpcrd'
+        #positions_file = mm.app.AmberInpcrdFile(positions_file_path)
         self.system = parameters_file.createSystem()
 
     def run_ante(file_path, file_name):
@@ -132,12 +132,12 @@ class MutatedLigand(object):
     def get_charge(self):
         system = self.system
         ligand_charge = []
+        for force in system.getForces():
+            if isinstance(force, mm.NonbondedForce):
+                nonbonded_force = force
         for index in range(system.getNumParticles()):
-            for force in system.getForces():
-                if isinstance(force, mm.NonbondedForce):
-                    nonbonded_force = force
-            OG_charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
-            ligand_charge.append(OG_charge)
+            charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
+            ligand_charge.append(charge)
         return (ligand_charge)
 
     def get_other_ParticleParameters():

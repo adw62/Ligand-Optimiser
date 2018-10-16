@@ -5,9 +5,8 @@ import simtk.openmm as mm
 from simtk import unit
 import mdtraj as md
 import numpy as np
-import copy
 
-#Constants
+#CONSTANTS
 kB = 0.008314472471220214
 T = 300
 kT = kB * T
@@ -22,10 +21,10 @@ class FSim(object):
         make some energy data structure
         """
         sim_dir = input_folder + sim_name + '/'
-        FSim.create_simuation(self, sim_name, sim_dir)
+        FSim.create_simulation(self, sim_name, sim_dir)
         FSim.get_ligand_atoms(self, ligand_name)
 
-    def create_simuation(self, sim_name, sim_dir):
+    def create_simulation(self, sim_name, sim_dir):
         pdb = app.PDBFile(sim_dir + sim_name + '.pdb')
         self.snapshot = md.load(sim_dir + sim_name + '.pdb')
         parameters_file_path = sim_dir + sim_name + '.prmtop'
@@ -43,86 +42,70 @@ class FSim(object):
 
         integrator = mm.LangevinIntegrator(300 * unit.kelvin, 1.0 / unit.picoseconds,
                                            1.0 * unit.femtoseconds)
+        #precision is significant to answers
         platform = mm.Platform.getPlatformByName('CUDA')
         properties = {'CudaPrecision': 'mixed'}
-        simulation = app.Simulation(pdb.topology, self.system_save, integrator, platform,
-                                    properties)
+        simulation = app.Simulation(pdb.topology, system, integrator, platform, properties)
+        simulation.context.setPositions(pdb.positions)
         self.simulation = simulation
 
     def get_ligand_atoms(self, ligand_name):
         ligand_atoms = self.snapshot.topology.select('resname {}'.format(ligand_name))
         self.ligand_atoms = ligand_atoms
 
-    def update_simulation(self, src_system):
-        ###Credit to Lee-Ping Wang for update simulation and associated functions
-        ### This is only updating nonbonded forces as other forces dont change.
-        dest_simulation = self.simulation
-        CopySystemParameters(src_system, dest_simulation.system)
-        for i in range(src_system.getNumForces()):
-            if hasattr(dest_simulation.system.getForce(i), 'updateParametersInContext'):
-                dest_simulation.system.getForce(i).updateParametersInContext(dest_simulation.context)
-            if isinstance(dest_simulation.system.getForce(i), mm.CustomNonbondedForce):
-                force = src_system.getForce(i)
-                for j in range(force.getNumGlobalParameters()):
-                    pName = force.getGlobalParameterName(j)
-                    pValue = force.getGlobalParameterDefaultValue(j)
-                    dest_simulation.context.setParameter(pName, pValue)
-
-    def apply_charges(self, charge):
-        system = copy.deepcopy(self.system_save)
-        for force in system.getForces():
-            if isinstance(force, mm.NonbondedForce):
-                nonbonded_force = force
-        for i, atom_idx in enumerate(self.ligand_atoms):
-            index = int(atom_idx)
-            OG_charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
-            nonbonded_force.setParticleParameters(index, charge[i], sigma, epsilon)
-        FSim.update_simulation(self, system)
-
-
-    def get_wildtype_energy(self, traj):
-        """
-
-        :param traj:
-        :return: return wildtype ligand as list of frame wise energies
-        """
-        #reset simulation
-        FSim.update_simulation(self, self.system_save)
-
-        wildtype_frame_energies = []
-        append = wildtype_frame_energies.append
-        for frame in traj:
-            self.simulation.context.setPositions(frame.xyz[0])
-            State = self.simulation.context.getState(getEnergy=True, groups={self.nonbonded_index})
-            append(State.getPotentialEnergy() / unit.kilojoule_per_mole)
-
-        return wildtype_frame_energies
-
-    def get_mutant_energy(self, charges, traj):
-        """
-
-        :param charges:
-        :param traj:
-        :return: list of mutant energies each mutant is list of frame wise energies
-        """
-        mutants_frame_energies = []
-        for charge in charges:
-            mutant_energies = []
-            FSim.apply_charges(self, charge)
-            append = mutant_energies.append
-            for frame in traj:
-                self.simulation.context.setPositions(frame.xyz[0])
-                State = self.simulation.context.getState(getEnergy=True, groups={self.nonbonded_index})
-                append(State.getPotentialEnergy() / unit.kilojoule_per_mole)
-            mutants_frame_energies.append(mutant_energies)
-
-        return mutants_frame_energies
-
     def treat_phase(self, ligand_charges, traj):
-        wildtype_energy = FSim.get_wildtype_energy(self, traj)
-        mutant_energy = FSim.get_mutant_energy(self, ligand_charges, traj)
+        pos = []
+        for frame in traj:
+            pos.append(frame.xyz[0])
+        context = self.simulation.context
+        wildtype_energy = get_wildtype_energy(context, pos, self.nonbonded_index)
+        mutant_energy = get_mutant_energy(context, ligand_charges, pos,
+                                          self.nonbonded_index, self.ligand_atoms)
         phase_free_energy = free_energy(mutant_energy, wildtype_energy)
         return phase_free_energy
+
+    def reset_simulation(self):
+        update_context(self.simulation.context, self.system_save)
+
+
+def apply_charges(context, charge, ligand_atoms):
+    system = context.getSystem()
+    for force in system.getForces():
+        if isinstance(force, mm.NonbondedForce):
+            nonbonded_force = force
+    for i, atom_idx in enumerate(ligand_atoms):
+        index = int(atom_idx)
+        OG_charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
+        nonbonded_force.setParticleParameters(index, charge[i], sigma, epsilon)
+    update_context(context, system)
+
+
+def get_wildtype_energy(context, pos, nonbonded_index):
+    wildtype_frame_energies = []
+    append = wildtype_frame_energies.append
+    KJ_M = unit.kilojoule_per_mole
+    State = context.getState(getEnergy=True, groups={nonbonded_index})
+    for frame in pos:
+        context.setPositions(frame)
+        energy = State.getPotentialEnergy()
+        append(energy / KJ_M)
+    return wildtype_frame_energies
+
+
+def get_mutant_energy(context, charges, pos, nonbonded_index, ligand_atoms):
+    mutants_frame_energies = []
+    KJ_M = unit.kilojoule_per_mole
+    for charge in charges:
+        mutant_energies = []
+        apply_charges(context, charge, ligand_atoms)
+        append = mutant_energies.append
+        State = context.getState(getEnergy=True, groups={nonbonded_index})
+        for frame in pos:
+            context.setPositions(frame)
+            energy = State.getPotentialEnergy()
+            append(energy / KJ_M)
+        mutants_frame_energies.append(mutant_energies)
+    return mutants_frame_energies
 
 
 def free_energy(mutant_energy, wildtype_energy):
@@ -131,30 +114,29 @@ def free_energy(mutant_energy, wildtype_energy):
     for ligand in mutant_energy:
         tmp = 0.0
         for i in range(len(wildtype_energy)):
-            print(ligand[i] - wildtype_energy[i])
+            #print(ligand[i] - wildtype_energy[i])
             tmp += (np.exp(-(ligand[i] - wildtype_energy[i]) / kT))
         ans.append(tmp / len(wildtype_energy))
     for energy in ans:
         free_energy.append(-kB * T * np.log(energy) / 1000.0)  # not sure of unit CHECK!!!
     return free_energy
 
-def CopyNonbondedParameters(src, dest):
-    dest.setReactionFieldDielectric(src.getReactionFieldDielectric())
-    for i in range(src.getNumParticles()):
-        dest.setParticleParameters(i,*src.getParticleParameters(i))
-    for i in range(src.getNumExceptions()):
-        dest.setExceptionParameters(i,*src.getExceptionParameters(i))
 
-def CopyCustomNonbondedParameters(src, dest):
-    '''
-    copy whatever updateParametersInContext can update:
-        per-particle parameters
-    '''
-    for i in range(src.getNumParticles()):
-        dest.setParticleParameters(i, list(src.getParticleParameters(i)))
+def update_context(context, src_system):
+    ###Credit to Lee-Ping Wang for update context and associated functions
+    ### This is only updating nonbonded forces as other forces dont change.
+    dest_system = context.getSystem()
+    CopySystemParameters(src_system, dest_system)
+    for i in range(src_system.getNumForces()):
+        if hasattr(dest_system.getForce(i), 'updateParametersInContext'):
+            dest_system.getForce(i).updateParametersInContext(context)
+        if isinstance(dest_system.getForce(i), mm.CustomNonbondedForce):
+            force = src_system.getForce(i)
+            for j in range(force.getNumGlobalParameters()):
+                pName = force.getGlobalParameterName(j)
+                pValue = force.getGlobalParameterDefaultValue(j)
+                context.setParameter(pName, pValue)
 
-def do_nothing(src, dest):
-    return
 
 def CopySystemParameters(src,dest):
     """Copy parameters from one system (i.e. that which is created by a new force field)
@@ -169,3 +151,24 @@ def CopySystemParameters(src,dest):
         else:
             pass
             #print('There is no Copier function implemented for the OpenMM force type %s!' % nm)
+
+
+def CopyNonbondedParameters(src, dest):
+    dest.setReactionFieldDielectric(src.getReactionFieldDielectric())
+    for i in range(src.getNumParticles()):
+        dest.setParticleParameters(i,*src.getParticleParameters(i))
+    for i in range(src.getNumExceptions()):
+        dest.setExceptionParameters(i,*src.getExceptionParameters(i))
+
+
+def CopyCustomNonbondedParameters(src, dest):
+    '''
+    copy whatever updateParametersInContext can update:
+        per-particle parameters
+    '''
+    for i in range(src.getNumParticles()):
+        dest.setParticleParameters(i, list(src.getParticleParameters(i)))
+
+
+def do_nothing(src, dest):
+    return
