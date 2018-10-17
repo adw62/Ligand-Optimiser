@@ -15,10 +15,14 @@ class FluorineScanning(object):
         complex_sim_dir = input_folder + complex_name + '/'
         solvent_sim_dir = input_folder + solvent_name + '/'
 
-        try:
-            os.makedirs(output_folder)
-        except:
-            raise ValueError('Could not create output folder {}'.format(output_folder))
+        if os.path.isdir(output_folder):
+            print('Output folder {} already exists.'
+                  ' Will attempt to skip ligand parametrisation, proceed with caution...'.format(output_folder))
+        else:
+            try:
+                os.makedirs(output_folder)
+            except:
+                print('Could not create output folder {}'.format(output_folder))
 
         mol = Mol2()
         try:
@@ -50,13 +54,15 @@ class FluorineScanning(object):
         for ligand in mutated_ligands:
             ligand_charges.append(ligand.get_charge())
         #Need a way to check ligand in mol2 and trajectory are the same an described with
-        #same topologiy indexes etc otherwise cant grantee charge is appied to correct atoms.
+        #same topologiy indexes etc otherwise cant grantee charge is appied to correct atoms?
         #COMPLEX
-        complex_traj = []
-        traj = md.load(complex_sim_dir + complex_name + '.pdb')#pdb for testing
-        for i in range(1):
-            complex_traj += traj
+
         complex = FSim(ligand_name=ligand_name, sim_name=complex_name, input_folder=input_folder)
+        complex_traj = md.load(complex_sim_dir + complex_name + '.pdb', complex_sim_dir + complex_name + '.dcd')
+
+        solvent = FSim(ligand_name=ligand_name, sim_name=solvent_name, input_folder=input_folder)
+        solvent_traj = md.load(solvent_sim_dir + solvent_name + '.pdb', solvent_sim_dir + solvent_name + '.dcd')
+
         t1 = time.time()
         print('Took {} seconds'.format(t1 - t0))
 
@@ -64,14 +70,12 @@ class FluorineScanning(object):
         t0 = time.time()
         complex_free_energy = FSim.treat_phase(complex, ligand_charges, complex_traj)
         print(complex_free_energy)
+
+        solvent_free_energy = FSim.treat_phase(solvent, ligand_charges, solvent_traj)
+        print(solvent_free_energy)
+
         t1 = time.time()
         print('Took {} seconds'.format(t1 - t0))
-
-        #SOLVENT
-        #solvent_traj = md.load(solvent_sim_dir + solvent_name + '.pdb') #PDB FOR TESTING
-        #solvent = FSim(ligand_name=ligand_name, sim_name=solvent_name, input_folder=input_folder)
-        #solvent_free_energy = FSim.treat_phase(solvent, ligand_charges, complex_traj)
-
 
 
         # How can this be called many times for optimiztion

@@ -64,13 +64,15 @@ class Mol2(object):
         bonded_h = []
         for line in self.data['BOND']:
             for atom in atoms:
-                if atom in line.split():
-                    bonds.append(line.split())
+                if atom in line.split()[0:3]:
+                    bonds.append(line.split()[0:3])
                     break
+
         for bond in bonds:
             if bond[1] in atoms:
-                if bond[0] and bond[2] in hydrogens:
-                    bonded_h.append(bond[0])
+                if bond[0] in hydrogens:
+                    if bond[2] in hydrogens:
+                        bonded_h.append(bond[0])
         return bonded_h
 
     def mutate_one_element(self, atom, new_element):
@@ -96,6 +98,7 @@ class Mol2(object):
                 new_atom_data.append(line)
             else:
                 new_atom_data.append(line)
+
         return Mol2(molecule=self.data['MOLECULE'], atoms=new_atom_data, bonds=self.data['BOND'])
         # Mol2.update_data(self, atoms=new_atom_data)
 
@@ -109,25 +112,20 @@ class Mol2(object):
 
 class MutatedLigand(object):
     def __init__(self, file_path, file_name):
-        extension = os.path.splitext(file_name)[1]
+        name, extension = os.path.splitext(file_name)
         if extension == '.mol2':
-            MutatedLigand.run_ante(file_path, file_name)
-            MutatedLigand.create_system(self, file_path)
+            run_ante(file_path, file_name, name)
+            MutatedLigand.create_system(self, file_path, name)
         else:
             logging.error('Input {} not found or incorrect format'.format(file_path + file_name))
 
-    def create_system(self, file_path):
+    def create_system(self, file_path, name):
         # PRMOUT MUST BE SET HERE TO HAVE AN EFFECT ON CHARGE
-        parameters_file_path = file_path + 'MOL.prmtop'
+        parameters_file_path = file_path + name + '.prmtop'
         parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
         #positions_file_path = file_path + 'MOL.inpcrd'
         #positions_file = mm.app.AmberInpcrdFile(positions_file_path)
         self.system = parameters_file.createSystem()
-
-    def run_ante(file_path, file_name):
-        moltool.amber.run_antechamber(molecule_name=file_path+'MOL', input_filename=file_path + file_name)
-        moltool.amber.run_tleap(molecule_name=file_path+'MOL', gaff_mol2_filename=file_path+'MOL.gaff.mol2',
-                                frcmod_filename=file_path+'MOL.frcmod')
 
     def get_charge(self):
         system = self.system
@@ -142,3 +140,11 @@ class MutatedLigand(object):
 
     def get_other_ParticleParameters():
         pass
+
+def run_ante(file_path, file_name, name):
+    if os.path.exists(file_path+name+'.prmtop'):
+        print('{0} found skipping antechamber and tleap for {1}'.format(file_path+name+'.prmtop', name))
+    else:
+        moltool.amber.run_antechamber(molecule_name=file_path+name, input_filename=file_path+file_name)
+        moltool.amber.run_tleap(molecule_name=file_path+name, gaff_mol2_filename=file_path+name+'.gaff.mol2',
+                                frcmod_filename=file_path+name+'.frcmod')

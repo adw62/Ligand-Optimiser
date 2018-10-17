@@ -51,6 +51,8 @@ class FSim(object):
 
     def get_ligand_atoms(self, ligand_name):
         ligand_atoms = self.snapshot.topology.select('resname {}'.format(ligand_name))
+        if len(ligand_atoms) == 0:
+            raise ValueError('Did not find ligand in supplied topology by name {}'.format(ligand_name))
         self.ligand_atoms = ligand_atoms
 
     def treat_phase(self, ligand_charges, traj):
@@ -77,6 +79,8 @@ def apply_charges(context, charge, ligand_atoms):
         index = int(atom_idx)
         OG_charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
         nonbonded_force.setParticleParameters(index, charge[i], sigma, epsilon)
+        print(OG_charge, charge[i])
+    print('////////////////////////')
     update_context(context, system)
 
 
