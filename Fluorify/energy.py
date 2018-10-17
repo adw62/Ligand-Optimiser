@@ -79,8 +79,6 @@ def apply_charges(context, charge, ligand_atoms):
         index = int(atom_idx)
         OG_charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
         nonbonded_force.setParticleParameters(index, charge[i], sigma, epsilon)
-        print(OG_charge, charge[i])
-    print('////////////////////////')
     update_context(context, system)
 
 
