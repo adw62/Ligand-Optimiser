@@ -55,7 +55,7 @@ class Mol2(object):
             if line.split()[5] == string:
                 aromatic_carbons.append(line.split()[0])
         if len(aromatic_carbons) == 0:
-            err_msg = 'Atom selection {} not reconised or atoms of this type are not in ligand'.format(string)
+            err_msg = 'Atom selection {} not recognised or atoms of this type are not in ligand'.format(string)
             logging.error(err_msg)
         return aromatic_carbons
 
@@ -120,7 +120,6 @@ class MutatedLigand(object):
             logging.error('Input {} not found or incorrect format'.format(file_path + file_name))
 
     def create_system(self, file_path, name):
-        # PRMOUT MUST BE SET HERE TO HAVE AN EFFECT ON CHARGE
         parameters_file_path = file_path + name + '.prmtop'
         parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
         #positions_file_path = file_path + 'MOL.inpcrd'
