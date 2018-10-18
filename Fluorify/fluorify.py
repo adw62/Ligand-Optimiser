@@ -7,6 +7,7 @@ import os
 import time
 import mdtraj as md
 
+
 class FluorineScanning(object):
     def __init__(self, input_folder, output_folder, mol_file, ligand_name,
                  complex_name, solvent_name, job_type):
@@ -46,15 +47,18 @@ class FluorineScanning(object):
         carbon_type = 'C.' + job_type[1]
         carbons = Mol2.get_atom_by_string(mol, carbon_type)
         hydrogens = Mol2.get_atom_by_string(mol, 'H')
-        bonded_h = Mol2.get_bonded_hydrogens(mol, hydrogens, carbons)
-        mutated_systems = Mol2.mutate_elements(mol, bonded_h, new_element)
-        mutated_ligands = []
+        carbons_neighbours = Mol2.get_bonded_neighbours(mol, carbons)
+        bonded_h = hydrogens.intersection(carbons_neighbours)
 
-        #Write Mol2 files with substitutions of selected atoms.
-        #Run antechamber and tleap on mol2 files to get prmtop.
-        #Create OpenMM systems of ligands from prmtop files.
-        print('Generating Mol2s...')
+        """
+        Write Mol2 files with substitutions of selected atoms.
+        Run antechamber and tleap on mol2 files to get prmtop.
+        Create OpenMM systems of ligands from prmtop files.
+        """
+        print('Parametrize mutant ligands...')
         t0 = time.time()
+        mutated_ligands = []
+        mutated_systems = Mol2.mutate_elements(mol, bonded_h, new_element)
         for index, sys in enumerate(mutated_systems):
             Mol2.write_mol2(sys, output_folder, 'molecule'+str(index))
             mutated_ligands.append(MutatedLigand(file_path=output_folder,
@@ -62,9 +66,11 @@ class FluorineScanning(object):
         t1 = time.time()
         print('Took {} seconds'.format(t1 - t0))
 
-        #Exstract ligand charges from OpenMM systems.
-        #Build OpenMM simulations for complex and solvent phases.
-        print('Setup...')
+        """
+        Extract ligand charges from OpenMM systems.
+        Build OpenMM simulations for complex and solvent phases.
+        """
+        print('Setup simulations...')
         t0 = time.time()
 
         ligand_charges = []
@@ -82,29 +88,27 @@ class FluorineScanning(object):
         t1 = time.time()
         print('Took {} seconds'.format(t1 - t0))
 
-        #Apply ligand charges to OpenMM simulations.
-        #Calculate potential energy of simulation with mutant charges.
-        #Calculate free energy change from wild type to mutant.
+        """
+        Apply ligand charges to OpenMM simulations.
+        Calculate potential energy of simulation with mutant charges.
+        Calculate free energy change from wild type to mutant.
+        """
         print('Calculating Energies...')
         t0 = time.time()
-        complex_free_energy = FSim.treat_phase(complex, ligand_charges, complex_traj)
-        #print(complex_free_energy)
 
+        complex_free_energy = FSim.treat_phase(complex, ligand_charges, complex_traj)
         solvent_free_energy = FSim.treat_phase(solvent, ligand_charges, solvent_traj)
-        #print(solvent_free_energy)
 
         for i, energy in enumerate(complex_free_energy):
-            atom_index = int(bonded_h[i]-1)
+            atom_index = int(list(bonded_h)[i])-1
             print('dG for molecule{}.mol2 with'
                   ' {} substituted for {}'.format(str(i), mol2_ligand_atoms[atom_index], job_type[0]))
-            print(-energy - solvent_free_energy[i])
+            print(energy - solvent_free_energy[i])
 
         t1 = time.time()
         print('Took {} seconds'.format(t1 - t0))
 
-
-        # How can this be called many times for optimiztion
-        # Check free energy calculation
+        # How can this be called many times for optimiztion?
 
 
 def get_atom_list(file, resname):

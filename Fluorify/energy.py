@@ -9,7 +9,8 @@ import numpy as np
 #CONSTANTS
 kB = 0.008314472471220214
 T = 300
-kT = kB * T
+kT = kB * T # Unit: kJ/mol
+
 
 class FSim(object):
     def __init__(self, ligand_name, sim_name, input_folder):
@@ -119,8 +120,8 @@ def free_energy(mutant_energy, wildtype_energy):
             #print(ligand[i] - wildtype_energy[i])
             tmp += (np.exp(-(ligand[i] - wildtype_energy[i]) / kT))
         ans.append(tmp / len(wildtype_energy))
-    for energy in ans:
-        free_energy.append(-kB * T * np.log(energy) / 1000.0)  # not sure of unit CHECK!!!
+    for ligand in ans:
+        free_energy.append(-kT * np.log(ligand) * 0.239) # Unit: kcal/mol
     return free_energy
 
 
