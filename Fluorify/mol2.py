@@ -50,21 +50,53 @@ class Mol2(object):
     def get_atom_by_string(self, string):
         if self.data == None:
             logger.error('No data to search. Please use get_data() first')
-        atoms = set()
+        atoms = []
         for line in self.data['ATOM']:
             if line.split()[5] == string:
-                atoms.add(line.split()[0])
+                atoms.append(line.split()[0])
         err_msg = 'Atom selection {} not recognised or atoms of this type are not in ligand'.format(string)
         if len(atoms) == 0:
             logging.error(err_msg)
         return atoms
 
     def get_bonded_neighbours(self, atoms=[]):
-        neighbours = set()
+        neighbours = []
         for line in self.data['BOND']:
             if line.split()[1] in atoms:
-                neighbours.add(line.split()[2])
+                neighbours.append(line.split()[2])
         return neighbours
+
+    """
+    def remove_atom(self, atom):
+        if atom == None:
+            return
+        new_atom_data = []
+
+        for line in self.data['ATOM']:
+            if int(line.split()[0]) is int(atom):
+                print(line)
+            else:
+                new_atom_data.append(line)
+
+        Mol2.update_data(self, molecule=self.data['MOLECULE'], atoms=new_atom_data,
+                         bonds=self.data['BOND'], other=self.data['OTHER'])
+
+    def remove_bonds(self, atom):
+        if atom == None:
+            return
+        new_bond_data = []
+
+        for line in self.data['BOND']:
+            if int(line.split()[1]) is int(atom):
+                print(line)
+            elif int(line.split()[2]) is int(atom):
+                print(line)
+            else:
+                new_bond_data.append(line)
+
+        Mol2.update_data(self, molecule=self.data['MOLECULE'], atoms=self.data['ATOM'],
+                         bonds=new_bond_data, other=self.data['OTHER'])
+    """
 
     def mutate_one_element(self, atom, new_element):
         new_atom_data = []

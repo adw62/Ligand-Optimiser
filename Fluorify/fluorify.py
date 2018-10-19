@@ -8,9 +8,11 @@ import time
 import mdtraj as md
 
 
-class FluorineScanning(object):
+class Scanning(object):
     def __init__(self, input_folder, output_folder, mol_file, ligand_name,
-                 complex_name, solvent_name, job_type):
+                 complex_name, solvent_name, job_type, exclusion_list):
+
+        self.job_type = job_type
 
         mol_file = mol_file + '.mol2'
         complex_sim_dir = input_folder + complex_name + '/'
@@ -25,9 +27,9 @@ class FluorineScanning(object):
             except:
                 print('Could not create output folder {}'.format(output_folder))
 
-        mol = Mol2()
+        self.mol = Mol2()
         try:
-            Mol2.get_data(mol, input_folder, mol_file)
+            Mol2.get_data(self.mol, input_folder, mol_file)
         except:
             raise ValueError('Could not load molecule {}'.format(input_folder + mol_file))
 
@@ -43,12 +45,10 @@ class FluorineScanning(object):
                              'Charges will not be applied where expected')
 
         #Generate atom selections
-        new_element = job_type[0]
-        carbon_type = 'C.' + job_type[1]
-        carbons = Mol2.get_atom_by_string(mol, carbon_type)
-        hydrogens = Mol2.get_atom_by_string(mol, 'H')
-        carbons_neighbours = Mol2.get_bonded_neighbours(mol, carbons)
-        bonded_h = hydrogens.intersection(carbons_neighbours)
+        if self.job_type[0] == 'N.ar':
+            mutated_systems, target_atoms = Scanning.add_nitrogens(self, exclusion_list)
+        else:
+            mutated_systems, target_atoms = Scanning.add_fluorines(self, exclusion_list)
 
         """
         Write Mol2 files with substitutions of selected atoms.
@@ -57,8 +57,8 @@ class FluorineScanning(object):
         """
         print('Parametrize mutant ligands...')
         t0 = time.time()
+
         mutated_ligands = []
-        mutated_systems = Mol2.mutate_elements(mol, bonded_h, new_element)
         for index, sys in enumerate(mutated_systems):
             Mol2.write_mol2(sys, output_folder, 'molecule'+str(index))
             mutated_ligands.append(MutatedLigand(file_path=output_folder,
@@ -100,7 +100,7 @@ class FluorineScanning(object):
         solvent_free_energy = FSim.treat_phase(solvent, ligand_charges, solvent_traj)
 
         for i, energy in enumerate(complex_free_energy):
-            atom_index = int(list(bonded_h)[i])-1
+            atom_index = int(target_atoms[i])-1
             print('dG for molecule{}.mol2 with'
                   ' {} substituted for {}'.format(str(i), mol2_ligand_atoms[atom_index], job_type[0]))
             print(energy - solvent_free_energy[i])
@@ -109,6 +109,64 @@ class FluorineScanning(object):
         print('Took {} seconds'.format(t1 - t0))
 
         # How can this be called many times for optimiztion?
+
+    def add_fluorines(self, exclusion_list):
+        new_element = self.job_type[0]
+        carbon_type = 'C.' + self.job_type[1]
+        carbons = Mol2.get_atom_by_string(self.mol, carbon_type)
+        hydrogens = Mol2.get_atom_by_string(self.mol, 'H')
+        tmp = [x for x in hydrogens if x not in exclusion_list]
+        if len(exclusion_list) != 0:
+            if tmp == hydrogens:
+                raise ValueError('An exclusion list was specified for {} scanning but the list did not reference any'
+                                 ' hydrogen in the system to excluded from being replaced'.format(self.job_type[0]))
+            else:
+                hydrogens = tmp
+        carbons_neighbours = Mol2.get_bonded_neighbours(self.mol, carbons)
+        bonded_h = [x for x in hydrogens if x in carbons_neighbours]
+        mutated_systems = Mol2.mutate_elements(self.mol, bonded_h, new_element)
+        return mutated_systems, bonded_h
+
+    def add_nitrogens(self, exclusion_list):
+        new_element = self.job_type[0]
+        carbon_type = 'C.' + self.job_type[1]
+        carbons = Mol2.get_atom_by_string(self.mol, carbon_type)
+        tmp = [x for x in carbons if x not in exclusion_list]
+        if len(exclusion_list) != 0:
+
+            if tmp == carbons:
+                raise ValueError('An exclusion list was specified for N scanning but the list '
+                                 'did not reference any carbon in the system to excluded from being replaced')
+            else:
+                carbons = tmp
+        hydrogens = Mol2.get_atom_by_string(self.mol, 'H')
+
+        """
+        Look for carbons with one hydrogen neighbour.
+        Reduce list of carbons to those with one hydrogen neighbour.
+        Make a note of which hydrogen is the neighbour.
+        Swap the carbon for a nitrogen and hydrogen for dummy.
+        This should be making Pyridine.
+        """
+        hydrogens_to_remove = []
+        c_tmp = []
+        for atom in carbons:
+            h_tmp = []
+            neighbours = Mol2.get_bonded_neighbours(self.mol, atom)
+            for neighbour in neighbours:
+                if neighbour in hydrogens:
+                    h_tmp.append(neighbour)
+            if len(h_tmp) == 1:
+                hydrogens_to_remove.append(h_tmp[0])
+                c_tmp.append(atom)
+        carbons = c_tmp
+
+        nitrogen_mutated_systems = Mol2.mutate_elements(self.mol, carbons, new_element)
+        mutated_systems = []
+        for i, mutant in enumerate(nitrogen_mutated_systems):
+            mutated_systems.append(Mol2.mutate_one_element(mutant, hydrogens_to_remove[i], 'Du'))
+
+        return mutated_systems, carbons
 
 
 def get_atom_list(file, resname):
@@ -119,3 +177,4 @@ def get_atom_list(file, resname):
     for idx in mol:
         atoms.append(str(top.atom(idx)).split('-')[1])
     return atoms
+

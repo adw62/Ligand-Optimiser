@@ -1,6 +1,6 @@
 #!/usr/local/bin/env python
 
-from .fluorify import FluorineScanning
+from .fluorify import Scanning
 from docopt import docopt
 
 # =============================================================================================
@@ -11,7 +11,7 @@ usage = """
 FLUORIFY
 Usage:
   Fluorify [--input_folder=STRING] [--output_folder=STRING] [--mol_file=STRING] [--ligand_name=STRING] [--complex_name=STRING] 
-           [--solvent_name=STRING] [--job_type=STRING]...
+           [--solvent_name=STRING] [--exclusion_list=LIST] [--job_type=STRING]...
 """
 
 
@@ -50,10 +50,15 @@ def main(argv=None):
         solvent_name = 'solvent'
         print(msg.format('solvent name', solvent_name))
 
+    if args['--exclusion_list']:
+        exclusion_list = args['--exclusion_list']
+    else:
+        exclusion_list = []
+
     if args['--job_type']:
         job_type = args['--job_type'][0]
         job_name = args['--job_type'][0]
-        allowed_elements = ['F', 'Cl']
+        allowed_elements = ['F', 'Cl', 'N.ar']
         allowed_carbon_types = ['1', '2', '3', 'ar']
         job_type = job_type.split('_')
         if job_type[0] not in allowed_elements:
@@ -73,6 +78,6 @@ def main(argv=None):
         output_folder = './' + mol_file + '_' + job_name + '/'
         print(msg.format('output folder', output_folder))
 
-    FluorineScanning(input_folder, output_folder, mol_file, ligand_name,
-                     complex_name, solvent_name, job_type)
+    Scanning(input_folder, output_folder, mol_file, ligand_name,
+                     complex_name, solvent_name, job_type, exclusion_list)
 
