@@ -58,7 +58,7 @@ def main(argv=None):
     if args['--job_type']:
         job_type = args['--job_type'][0]
         job_name = args['--job_type'][0]
-        allowed_elements = ['F', 'Cl', 'N.ar']
+        allowed_elements = ['F', 'Cl']
         allowed_carbon_types = ['1', '2', '3', 'ar']
         job_type = job_type.split('_')
         if job_type[0] not in allowed_elements:

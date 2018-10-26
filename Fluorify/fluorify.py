@@ -54,6 +54,7 @@ class Scanning(object):
         Write Mol2 files with substitutions of selected atoms.
         Run antechamber and tleap on mol2 files to get prmtop.
         Create OpenMM systems of ligands from prmtop files.
+        Extract ligand charges from OpenMM systems.
         """
         print('Parametrize mutant ligands...')
         t0 = time.time()
@@ -63,41 +64,34 @@ class Scanning(object):
             Mol2.write_mol2(sys, output_folder, 'molecule'+str(index))
             mutated_ligands.append(MutatedLigand(file_path=output_folder,
                                                  file_name='{}.mol2'.format('molecule'+str(index))))
-        t1 = time.time()
-        print('Took {} seconds'.format(t1 - t0))
-
-        """
-        Extract ligand charges from OpenMM systems.
-        Build OpenMM simulations for complex and solvent phases.
-        """
-        print('Setup simulations...')
-        t0 = time.time()
 
         ligand_charges = []
         for ligand in mutated_ligands:
             ligand_charges.append(ligand.get_charge())
 
-        #COMPLEX
-        complex = FSim(ligand_name=ligand_name, sim_name=complex_name, input_folder=input_folder)
-        complex_traj = md.load(complex_sim_dir+complex_name+'.pdb', complex_sim_dir+complex_name+'.dcd')
-
-        #SOLVENT
-        solvent = FSim(ligand_name=ligand_name, sim_name=solvent_name, input_folder=input_folder)
-        solvent_traj = md.load(solvent_sim_dir+solvent_name+'.pdb', solvent_sim_dir+solvent_name+'.dcd')
-
         t1 = time.time()
         print('Took {} seconds'.format(t1 - t0))
 
         """
+        Build OpenMM simulations for complex and solvent phases.
         Apply ligand charges to OpenMM simulations.
         Calculate potential energy of simulation with mutant charges.
         Calculate free energy change from wild type to mutant.
         """
-        print('Calculating Energies...')
-        t0 = time.time()
 
-        complex_free_energy = FSim.treat_phase(complex, ligand_charges, complex_traj)
-        solvent_free_energy = FSim.treat_phase(solvent, ligand_charges, solvent_traj)
+        #COMPLEX
+        complex = FSim(ligand_name=ligand_name, sim_name=complex_name, input_folder=input_folder)
+        com_top = md.load(complex_sim_dir+complex_name+'.pdb').topology
+        com_dcd = complex_sim_dir + complex_name + '.dcd'
+        #SOLVENT
+        solvent = FSim(ligand_name=ligand_name, sim_name=solvent_name, input_folder=input_folder)
+        sol_top = md.load(solvent_sim_dir+solvent_name+'.pdb').topology
+        sol_dcd = solvent_sim_dir + solvent_name + '.dcd'
+
+        complex_free_energy = FSim.treat_phase(complex, ligand_charges, com_dcd, com_top)
+        print(complex_free_energy)
+        solvent_free_energy = FSim.treat_phase(solvent, ligand_charges, sol_dcd, sol_top)
+        print(solvent_free_energy)
 
         for i, energy in enumerate(complex_free_energy):
             atom_index = int(target_atoms[i])-1
@@ -105,12 +99,12 @@ class Scanning(object):
                   ' {} substituted for {}'.format(str(i), mol2_ligand_atoms[atom_index], job_type[0]))
             print(energy - solvent_free_energy[i])
 
-        t1 = time.time()
-        print('Took {} seconds'.format(t1 - t0))
 
         # How can this be called many times for optimiztion?
 
     def add_fluorines(self, exclusion_list):
+        exclusion_list = ['34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45',
+                          '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58']
         new_element = self.job_type[0]
         carbon_type = 'C.' + self.job_type[1]
         carbons = Mol2.get_atom_by_string(self.mol, carbon_type)
@@ -164,6 +158,8 @@ class Scanning(object):
         nitrogen_mutated_systems = Mol2.mutate_elements(self.mol, carbons, new_element)
         mutated_systems = []
         for i, mutant in enumerate(nitrogen_mutated_systems):
+            #Du not reconised by antechamber but it throws no errors
+            #this is not a viable method
             mutated_systems.append(Mol2.mutate_one_element(mutant, hydrogens_to_remove[i], 'Du'))
 
         return mutated_systems, carbons
