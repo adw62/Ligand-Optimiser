@@ -8,6 +8,13 @@ import simtk.openmm as mm
 
 class Mol2(object):
     def __init__(self, molecule=None, atoms=None, bonds=None, other=None):
+        """A class for reading, writing and modifying a ligand in a mol2 file.
+
+        molecule: All information in mol2 file under '@<TRIPOS>MOLECULE' header
+        atoms: All information in mol2 file under '@<TRIPOS>ATOM' header
+        bonds: All information in mol2 file under '@<TRIPOS>BOND' header
+        other: All information in mol2 file not under MOLECULE, ATOM or BOND header
+        """
         self.data = {'MOLECULE': [], 'ATOM': [], 'BOND': [], 'OTHER': []}
         Mol2.update_data(self, molecule, atoms, bonds, other)
 
@@ -121,7 +128,6 @@ class Mol2(object):
 
         return Mol2(molecule=self.data['MOLECULE'], atoms=new_atom_data,
                     bonds=self.data['BOND'], other=self.data['OTHER'])
-        # Mol2.update_data(self, atoms=new_atom_data)
 
     def mutate_elements(self, atoms, new_element):
         mutated_systems = []
@@ -133,6 +139,10 @@ class Mol2(object):
 
 class MutatedLigand(object):
     def __init__(self, file_path, file_name):
+        """A class for extracting parameters from a mutated ligand in a mol2 file.
+        file_path: location of ligand file
+        file_name: name of ligand file
+        """
         name, extension = os.path.splitext(file_name)
         if extension == '.mol2':
             run_ante(file_path, file_name, name)
@@ -143,8 +153,6 @@ class MutatedLigand(object):
     def create_system(self, file_path, name):
         parameters_file_path = file_path + name + '.prmtop'
         parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
-        #positions_file_path = file_path + 'MOL.inpcrd'
-        #positions_file = mm.app.AmberInpcrdFile(positions_file_path)
         self.system = parameters_file.createSystem()
 
     def get_charge(self):
@@ -158,7 +166,7 @@ class MutatedLigand(object):
             ligand_charge.append(charge)
         return (ligand_charge)
 
-    def get_other_ParticleParameters():
+    def get_other_particleparameters():
         pass
 
 

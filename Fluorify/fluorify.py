@@ -11,9 +11,20 @@ import mdtraj as md
 class Scanning(object):
     def __init__(self, input_folder, output_folder, mol_file, ligand_name,
                  complex_name, solvent_name, job_type, exclusion_list):
+        """A class for preparation and running scanning analysis
 
+        input_folder: name for input directory. Default, input
+        mol_file: name of input ligand file
+        ligand_name: resname for input ligand
+        complex_name: name of complex phase directory inside of input directory. Default, complex
+        solvent_name: name of solvent phase directory inside of output directory.  Default solvent
+        job_type: name of scanning requested i.e. F_ar replaces hydrogen on aromatic 'ar' carbons with fluorine 'F'
+        exclusion_list: list of atoms to exclude from being replaced (not implemented)
+        output_folder: name for output directory. Default, mol_file + job_type
+        """
         self.job_type = job_type
 
+        #Prepare directories/files and read in ligand from mol2 file
         mol_file = mol_file + '.mol2'
         complex_sim_dir = input_folder + complex_name + '/'
         solvent_sim_dir = input_folder + solvent_name + '/'
@@ -78,6 +89,8 @@ class Scanning(object):
         Calculate potential energy of simulation with mutant charges.
         Calculate free energy change from wild type to mutant.
         """
+        print('Calculating free energies...')
+        t0 = time.time()
 
         #COMPLEX
         complex = FSim(ligand_name=ligand_name, sim_name=complex_name, input_folder=input_folder)
@@ -99,8 +112,8 @@ class Scanning(object):
                   ' {} substituted for {}'.format(str(i), mol2_ligand_atoms[atom_index], job_type[0]))
             print(energy - solvent_free_energy[i])
 
-
-        # How can this be called many times for optimiztion?
+        t1 = time.time()
+        print('Took {} seconds'.format(t1 - t0))
 
     def add_fluorines(self, exclusion_list):
         exclusion_list = ['34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45',
@@ -122,6 +135,15 @@ class Scanning(object):
         return mutated_systems, bonded_h
 
     def add_nitrogens(self, exclusion_list):
+        """
+        Look for carbons with one hydrogen neighbour.
+        Reduce list of carbons to those with one hydrogen neighbour.
+        Make a note of which hydrogen is the neighbour.
+        Swap the carbon for a nitrogen and hydrogen for dummy.
+        This should be making Pyridine.
+        """
+        # Du (dummy atom) is not recognised by antechamber but it throws no errors
+        # this is not a viable method
         new_element = self.job_type[0]
         carbon_type = 'C.' + self.job_type[1]
         carbons = Mol2.get_atom_by_string(self.mol, carbon_type)
@@ -134,14 +156,6 @@ class Scanning(object):
             else:
                 carbons = tmp
         hydrogens = Mol2.get_atom_by_string(self.mol, 'H')
-
-        """
-        Look for carbons with one hydrogen neighbour.
-        Reduce list of carbons to those with one hydrogen neighbour.
-        Make a note of which hydrogen is the neighbour.
-        Swap the carbon for a nitrogen and hydrogen for dummy.
-        This should be making Pyridine.
-        """
         hydrogens_to_remove = []
         c_tmp = []
         for atom in carbons:
@@ -158,10 +172,7 @@ class Scanning(object):
         nitrogen_mutated_systems = Mol2.mutate_elements(self.mol, carbons, new_element)
         mutated_systems = []
         for i, mutant in enumerate(nitrogen_mutated_systems):
-            #Du not reconised by antechamber but it throws no errors
-            #this is not a viable method
             mutated_systems.append(Mol2.mutate_one_element(mutant, hydrogens_to_remove[i], 'Du'))
-
         return mutated_systems, carbons
 
 
