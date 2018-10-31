@@ -101,10 +101,10 @@ class Scanning(object):
         sol_top = md.load(solvent_sim_dir+solvent_name+'.pdb').topology
         sol_dcd = solvent_sim_dir + solvent_name + '.dcd'
 
-        complex_free_energy = FSim.treat_phase(complex, ligand_charges, com_dcd, com_top)
-        print(complex_free_energy)
         solvent_free_energy = FSim.treat_phase(solvent, ligand_charges, sol_dcd, sol_top)
         print(solvent_free_energy)
+        complex_free_energy = FSim.treat_phase(complex, ligand_charges, com_dcd, com_top)
+        print(complex_free_energy)
 
         for i, energy in enumerate(complex_free_energy):
             atom_index = int(target_atoms[i])-1
@@ -116,8 +116,8 @@ class Scanning(object):
         print('Took {} seconds'.format(t1 - t0))
 
     def add_fluorines(self, exclusion_list):
-        exclusion_list = ['34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45',
-                          '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58']
+        exclusion_list = ['34', '35', '36', '39', '40', '41', '42', '43', '44', '45', '46',
+                          '47', '48', '50', '51', '52', '53', '54', '55', '56', '57', '58']
         new_element = self.job_type[0]
         carbon_type = 'C.' + self.job_type[1]
         carbons = Mol2.get_atom_by_string(self.mol, carbon_type)
@@ -142,8 +142,7 @@ class Scanning(object):
         Swap the carbon for a nitrogen and hydrogen for dummy.
         This should be making Pyridine.
         """
-        # Du (dummy atom) is not recognised by antechamber but it throws no errors
-        # this is not a viable method
+
         new_element = self.job_type[0]
         carbon_type = 'C.' + self.job_type[1]
         carbons = Mol2.get_atom_by_string(self.mol, carbon_type)
@@ -169,10 +168,10 @@ class Scanning(object):
                 c_tmp.append(atom)
         carbons = c_tmp
 
-        nitrogen_mutated_systems = Mol2.mutate_elements(self.mol, carbons, new_element)
-        mutated_systems = []
-        for i, mutant in enumerate(nitrogen_mutated_systems):
-            mutated_systems.append(Mol2.mutate_one_element(mutant, hydrogens_to_remove[i], 'Du'))
+        mutated_systems = Mol2.mutate_elements(self.mol, carbons, new_element)
+        for i, mutant in enumerate(mutated_systems):
+            mutant.remove_atom(hydrogens_to_remove[i])
+            mutant.remove_bonds(hydrogens_to_remove[i])
         return mutated_systems, carbons
 
 

@@ -5,7 +5,6 @@ import logging
 import openmoltools as moltool
 import simtk.openmm as mm
 
-
 class Mol2(object):
     def __init__(self, molecule=None, atoms=None, bonds=None, other=None):
         """A class for reading, writing and modifying a ligand in a mol2 file.
@@ -15,8 +14,7 @@ class Mol2(object):
         bonds: All information in mol2 file under '@<TRIPOS>BOND' header
         other: All information in mol2 file not under MOLECULE, ATOM or BOND header
         """
-        self.data = {'MOLECULE': [], 'ATOM': [], 'BOND': [], 'OTHER': []}
-        Mol2.update_data(self, molecule, atoms, bonds, other)
+        self.data = {'MOLECULE': molecule, 'ATOM': atoms, 'BOND': bonds, 'OTHER': other}
 
     def get_data(self, ligand_file_path, ligand_file_name):
         ligand = open(ligand_file_path+ligand_file_name)
@@ -51,7 +49,28 @@ class Mol2(object):
         f.close()
 
     def update_data(self, molecule, atoms, bonds, other):
-        data = {'MOLECULE': molecule, 'ATOM': atoms, 'BOND': bonds, 'OTHER': other}
+        #need to reindex bonds and remove atoms/bonds from molecule header
+        new_atom_data = atoms
+        new_bond_data = bonds
+        """
+        new_atom_data = []
+        bonds_to_ammend = []
+        for i, line in enumerate(atoms):
+            if int(line.split()[0]) != i+1:
+                bonds_to_ammend.append(line.split()[0])
+                line = line.replace('    {} '.format(line.split()[0]), '    {} '.format(i+1))
+                new_atom_data.append(line)
+            else:
+                new_atom_data.append(line)
+        new_bond_data = []
+        for i, line in enumerate(bonds):
+            if int(line.split()[0]) != i+1:
+                line = line.replace('    {} '.format(line.split()[0]), '    {} '.format(i+1))
+                new_bond_data.append(line)
+            else:
+                new_bond_data.append(line)
+        """
+        data = {'MOLECULE': molecule, 'ATOM': new_atom_data, 'BOND': new_bond_data, 'OTHER': other}
         self.data = data
 
     def get_atom_by_string(self, string):
@@ -77,22 +96,15 @@ class Mol2(object):
     def remove_atom(self, atom):
         if atom == None:
             return
-        new_atom_data = []
 
+        new_atom_data = []
         for line in self.data['ATOM']:
             if int(line.split()[0]) is int(atom):
                 print(line)
             else:
                 new_atom_data.append(line)
 
-        Mol2.update_data(self, molecule=self.data['MOLECULE'], atoms=new_atom_data,
-                         bonds=self.data['BOND'], other=self.data['OTHER'])
-
-    def remove_bonds(self, atom):
-        if atom == None:
-            return
         new_bond_data = []
-
         for line in self.data['BOND']:
             if int(line.split()[1]) is int(atom):
                 print(line)
@@ -101,7 +113,7 @@ class Mol2(object):
             else:
                 new_bond_data.append(line)
 
-        Mol2.update_data(self, molecule=self.data['MOLECULE'], atoms=self.data['ATOM'],
+        Mol2.update_data(self, molecule=self.data['MOLECULE'], atoms=new_atom_data,
                          bonds=new_bond_data, other=self.data['OTHER'])
     """
 

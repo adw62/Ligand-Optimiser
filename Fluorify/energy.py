@@ -58,7 +58,7 @@ class FSim(object):
         [alpha_ewald, nx, ny, nz] = nonbonded_force.getPMEParameters()
         energy_expression = "(ONE_4PI_EPS0*chargeprod*erfc(alpha_ewald*r)/r "
         energy_expression += "+ 4*epsilon*((sigma/r)^12 - (sigma/r)^6));"
-        energy_expression += "epsilon = epsilon1*epsilon2;"
+        energy_expression += "epsilon = sqrt(epsilon1*epsilon2);"
         energy_expression += "sigma = 0.5*(sigma1+sigma2);"
         energy_expression += "ONE_4PI_EPS0 = {:f};".format(ONE_4PI_EPS0)  # already in OpenMM units
         energy_expression += "chargeprod = charge1*charge2;"
@@ -111,10 +111,10 @@ class FSim(object):
         wildtype_frame_energies = []
         append = wildtype_frame_energies.append
         KJ_M = unit.kilojoule_per_mole
-        neighbour_list_interval = 50
+        neighbour_list_interval = 2000
 
         #need to catch if traj shorter than requested read
-        for i, frame in enumerate(FSim.frames(self, dcd, top, maxframes=100)):
+        for i, frame in enumerate(FSim.frames(self, dcd, top, maxframes=10000)):
             if i % neighbour_list_interval == 0:
                 #print('Computing neighbour list for frame {}'.format(i))
                 system = copy.deepcopy(self.wt_system)
@@ -123,6 +123,7 @@ class FSim(object):
                 context = FSim.build_context(self, system)
             context.setPositions(frame.xyz[0])
             energy = context.getState(getEnergy=True).getPotentialEnergy()
+            #print(energy)
             append(energy/KJ_M)
         return wildtype_frame_energies
 
@@ -135,13 +136,13 @@ class FSim(object):
     def get_mutant_energy(self, charges, dcd, top):
         mutants_frame_energies = []
         KJ_M = unit.kilojoule_per_mole
-        neighbour_list_interval = 50
+        neighbour_list_interval = 2000
         for charge in charges:
             mutant_energies = []
             append = mutant_energies.append
             charged_system = copy.deepcopy(self.wt_system)
             FSim.apply_charges(self, charged_system.getForce(0), charge)
-            for i, frame in enumerate(FSim.frames(self, dcd, top, maxframes=100)):
+            for i, frame in enumerate(FSim.frames(self, dcd, top, maxframes=10000)):
                 if i % neighbour_list_interval == 0:
                     #print('Computing neighbour list for frame {}'.format(i))
                     grouped_system = copy.deepcopy(charged_system)
