@@ -11,7 +11,7 @@ usage = """
 FLUORIFY
 Usage:
   Fluorify [--input_folder=STRING] [--output_folder=STRING] [--mol_file=STRING] [--ligand_name=STRING] [--complex_name=STRING] 
-           [--solvent_name=STRING] [--exclusion_list=LIST] [--job_type=STRING]...
+           [--solvent_name=STRING] [--exclusion_list=LIST] [--num_frames=INT] [--job_type=STRING]...
 """
 
 
@@ -78,6 +78,12 @@ def main(argv=None):
         output_folder = './' + mol_file + '_' + job_name + '/'
         print(msg.format('output folder', output_folder))
 
+    if args['--num_frames']:
+        num_frames = args['--num_frames']
+    else:
+        num_frames = 9500
+        print(msg.format('number of frames', num_frames))
+
     Scanning(input_folder, output_folder, mol_file, ligand_name,
-                     complex_name, solvent_name, job_type, exclusion_list)
+             complex_name, solvent_name, job_type, exclusion_list, num_frames)
 

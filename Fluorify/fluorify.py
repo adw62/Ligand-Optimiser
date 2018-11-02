@@ -10,7 +10,7 @@ import mdtraj as md
 
 class Scanning(object):
     def __init__(self, input_folder, output_folder, mol_file, ligand_name,
-                 complex_name, solvent_name, job_type, exclusion_list):
+                 complex_name, solvent_name, job_type, exclusion_list, num_frames):
         """A class for preparation and running scanning analysis
 
         input_folder: name for input directory. Default, input
@@ -101,10 +101,11 @@ class Scanning(object):
         sol_top = md.load(solvent_sim_dir+solvent_name+'.pdb').topology
         sol_dcd = solvent_sim_dir + solvent_name + '.dcd'
 
-        solvent_free_energy = FSim.treat_phase(solvent, ligand_charges, sol_dcd, sol_top)
-        print(solvent_free_energy)
-        complex_free_energy = FSim.treat_phase(complex, ligand_charges, com_dcd, com_top)
+        complex_free_energy = FSim.treat_phase(complex, ligand_charges, com_dcd, com_top, num_frames)
         print(complex_free_energy)
+        solvent_free_energy = FSim.treat_phase(solvent, ligand_charges, sol_dcd, sol_top, num_frames)
+        print(solvent_free_energy)
+
 
         for i, energy in enumerate(complex_free_energy):
             atom_index = int(target_atoms[i])-1

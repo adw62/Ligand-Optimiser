@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import simtk.openmm as mm
+from simtk.openmm import app
 from simtk import unit
 import mdtraj as md
 import numpy as np
@@ -22,24 +23,19 @@ class FSim(object):
         sim_name: complex or solvent
         input_folder: input directory
         """
+
         #Create system from input files
         sim_dir = input_folder + sim_name + '/'
         self.snapshot = md.load(sim_dir + sim_name + '.pdb')
-        self.all_atoms = [int(i) for i in self.snapshot.topology.select('all')]
         parameters_file_path = sim_dir + sim_name + '.prmtop'
         parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
-        system = parameters_file.createSystem()
+        system = parameters_file.createSystem(nonbondedMethod=app.PME, nonbondedCutoff=1.0*unit.nanometers,
+                                              constraints=app.HBonds, rigidWater=True, ewaldErrorTolerance=0.0005)
 
-        #Copy non_bonded force into custom_nonbonded force and remove all forces which dont change
-        forces_to_remove = []
         for force_index, force in enumerate(system.getForces()):
-            forces_to_remove.append(force_index)
             if isinstance(force, mm.NonbondedForce):
-                nonbonded_force = force
-        custom_nonbonded_force = FSim.create_custom_force(self, nonbonded_force)
-        system.addForce(custom_nonbonded_force)
-        for i in reversed(forces_to_remove):
-            system.removeForce(i)
+                self.nonbonded_index = force_index
+            force.setForceGroup(force_index)
 
         self.wt_system = system
         self.ligand_atoms = FSim.get_ligand_atoms(self, ligand_name)
@@ -51,79 +47,32 @@ class FSim(object):
         context = mm.Context(system, integrator, platform, properties)
         return context
 
-    def create_custom_force(self, nonbonded_force):
-        """ Copy a nonbonded force to a custom nonbonded force
-        so that we can use interaction groups to create a neighbour list
-        """
-        [alpha_ewald, nx, ny, nz] = nonbonded_force.getPMEParameters()
-        energy_expression = "(ONE_4PI_EPS0*chargeprod*erfc(alpha_ewald*r)/r "
-        energy_expression += "+ 4*epsilon*((sigma/r)^12 - (sigma/r)^6));"
-        energy_expression += "epsilon = sqrt(epsilon1*epsilon2);"
-        energy_expression += "sigma = 0.5*(sigma1+sigma2);"
-        energy_expression += "ONE_4PI_EPS0 = {:f};".format(ONE_4PI_EPS0)  # already in OpenMM units
-        energy_expression += "chargeprod = charge1*charge2;"
-        energy_expression += "alpha_ewald = {:f};".format(alpha_ewald.value_in_unit_system(unit.md_unit_system))
-        custom_nonbonded_force = mm.CustomNonbondedForce(energy_expression)
-        custom_nonbonded_force.addPerParticleParameter('charge')
-        custom_nonbonded_force.addPerParticleParameter('sigma')
-        custom_nonbonded_force.addPerParticleParameter('epsilon')
-        custom_nonbonded_force.setNonbondedMethod(mm.CustomNonbondedForce.CutoffPeriodic)
-        custom_nonbonded_force.setCutoffDistance(1.1)
-        custom_nonbonded_force.setUseLongRangeCorrection(False)
-
-        for particle_index in range(nonbonded_force.getNumParticles()):
-            [charge, sigma, epsilon] = nonbonded_force.getParticleParameters(particle_index)
-            custom_nonbonded_force.addParticle([charge, sigma, epsilon])
-        return custom_nonbonded_force
-
     def get_ligand_atoms(self, ligand_name):
         ligand_atoms = self.snapshot.topology.select('resname {}'.format(ligand_name))
         if len(ligand_atoms) == 0:
             raise ValueError('Did not find ligand in supplied topology by name {}'.format(ligand_name))
         return ligand_atoms
 
-    def treat_phase(self, ligand_charges, dcd, top):
-        wildtype_energy = FSim.get_wildtype_energy(self, dcd, top)
-        mutant_energy = FSim.get_mutant_energy(self, ligand_charges, dcd, top)
+    def treat_phase(self, ligand_charges, dcd, top, num_frames):
+        wildtype_energy = FSim.get_wildtype_energy(self, dcd, top, num_frames)
+        mutant_energy = FSim.get_mutant_energy(self, ligand_charges, dcd, top, num_frames)
         phase_free_energy = get_free_energy(mutant_energy, wildtype_energy)
         return phase_free_energy
 
-    def get_neighbour_list(self, frame, atom=None, cutoff=1.1):
-        if atom == None:
-            atom = self.ligand_atoms
-        neighbour_list = md.compute_neighbors(frame, cutoff, query_indices=atom,
-                                              haystack_indices=None, periodic=True)
-        neighbour_list = [int(i) for i in neighbour_list[0]]
-        return neighbour_list
-
-    def apply_neighbour_list(self, force, neighbours):
-        not_neighbours = [x for x in self.all_atoms if x not in neighbours]
-        force.addInteractionGroup(neighbours, neighbours)
-        force.addInteractionGroup([], not_neighbours)
-
     def frames(self, dcd, top, maxframes):
-        equi = 0
-        for i in range(equi, maxframes+equi):
+        for i in range(maxframes):
             frame = md.load_dcd(dcd, top=top, stride=None, atom_indices=None, frame=i)
             yield frame
 
-    def get_wildtype_energy(self, dcd, top):
+    def get_wildtype_energy(self, dcd, top, num_frames):
         wildtype_frame_energies = []
         append = wildtype_frame_energies.append
         KJ_M = unit.kilojoule_per_mole
-        neighbour_list_interval = 2000
-
+        context = FSim.build_context(self, self.wt_system)
         #need to catch if traj shorter than requested read
-        for i, frame in enumerate(FSim.frames(self, dcd, top, maxframes=10000)):
-            if i % neighbour_list_interval == 0:
-                #print('Computing neighbour list for frame {}'.format(i))
-                system = copy.deepcopy(self.wt_system)
-                neighbours = FSim.get_neighbour_list(self, frame)
-                FSim.apply_neighbour_list(self, system.getForce(0), neighbours)
-                context = FSim.build_context(self, system)
+        for i, frame in enumerate(FSim.frames(self, dcd, top, maxframes=num_frames)):
             context.setPositions(frame.xyz[0])
-            energy = context.getState(getEnergy=True).getPotentialEnergy()
-            #print(energy)
+            energy = context.getState(getEnergy=True, groups={self.nonbonded_index}).getPotentialEnergy()
             append(energy/KJ_M)
         return wildtype_frame_energies
 
@@ -131,26 +80,21 @@ class FSim(object):
         for i, atom_idx in enumerate(self.ligand_atoms):
             index = int(atom_idx)
             OG_charge, sigma, epsilon = force.getParticleParameters(index)
-            force.setParticleParameters(index, [charge[i], sigma, epsilon])
+            force.setParticleParameters(index, charge[i], sigma, epsilon)
 
-    def get_mutant_energy(self, charges, dcd, top):
+    def get_mutant_energy(self, charges, dcd, top, num_frames):
         mutants_frame_energies = []
         KJ_M = unit.kilojoule_per_mole
-        neighbour_list_interval = 2000
         for charge in charges:
             mutant_energies = []
             append = mutant_energies.append
             charged_system = copy.deepcopy(self.wt_system)
-            FSim.apply_charges(self, charged_system.getForce(0), charge)
-            for i, frame in enumerate(FSim.frames(self, dcd, top, maxframes=10000)):
-                if i % neighbour_list_interval == 0:
-                    #print('Computing neighbour list for frame {}'.format(i))
-                    grouped_system = copy.deepcopy(charged_system)
-                    neighbours = FSim.get_neighbour_list(self, frame)
-                    FSim.apply_neighbour_list(self, grouped_system.getForce(0), neighbours)
-                    context = FSim.build_context(self, grouped_system)
+            FSim.apply_charges(self, charged_system.getForce(self.nonbonded_index), charge)
+            context = FSim.build_context(self, charged_system)
+            for i, frame in enumerate(FSim.frames(self, dcd, top, maxframes=num_frames)):
                 context.setPositions(frame.xyz[0])
-                energy = context.getState(getEnergy=True).getPotentialEnergy()
+                energy = context.getState(getEnergy=True, groups={self.nonbonded_index}).getPotentialEnergy()
+                print(energy)
                 append(energy / KJ_M)
             mutants_frame_energies.append(mutant_energies)
         return mutants_frame_energies
