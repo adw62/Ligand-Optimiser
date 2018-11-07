@@ -79,7 +79,7 @@ def main(argv=None):
         print(msg.format('output folder', output_folder))
 
     if args['--num_frames']:
-        num_frames = args['--num_frames']
+        num_frames = int(args['--num_frames'])
     else:
         num_frames = 9500
         print(msg.format('number of frames', num_frames))

@@ -8,7 +8,7 @@ import numpy as np
 import copy
 
 #CONSTANTS
-from openmmtools.constants import ONE_4PI_EPS0
+e = unit.elementary_charges
 kB = 0.008314472471220214
 T = 300
 kT = kB * T # Unit: kJ/mol
@@ -70,31 +70,39 @@ class FSim(object):
         KJ_M = unit.kilojoule_per_mole
         context = FSim.build_context(self, self.wt_system)
         #need to catch if traj shorter than requested read
-        for i, frame in enumerate(FSim.frames(self, dcd, top, maxframes=num_frames)):
+        for frame in FSim.frames(self, dcd, top, maxframes=num_frames):
             context.setPositions(frame.xyz[0])
+            context.setPeriodicBoxVectors(frame.unitcell_vectors[0][0],
+                                          frame.unitcell_vectors[0][1], frame.unitcell_vectors[0][2])
             energy = context.getState(getEnergy=True, groups={self.nonbonded_index}).getPotentialEnergy()
+            print(energy)
             append(energy/KJ_M)
         return wildtype_frame_energies
 
-    def apply_charges(self, force, charge):
+    def apply_charges(self, force, charge, index=None, write_charges=False):
+        f = open('charges_{}.out'.format(index), 'w')
         for i, atom_idx in enumerate(self.ligand_atoms):
             index = int(atom_idx)
-            OG_charge, sigma, epsilon = force.getParticleParameters(index)
+            og_charge, sigma, epsilon = force.getParticleParameters(index)
             force.setParticleParameters(index, charge[i], sigma, epsilon)
+            if write_charges:
+                f.write('{0}    {1}\n'.format(og_charge/e, charge[i]/e))
+        f.close()
 
     def get_mutant_energy(self, charges, dcd, top, num_frames):
         mutants_frame_energies = []
         KJ_M = unit.kilojoule_per_mole
-        for charge in charges:
+        for index, charge in enumerate(charges):
             mutant_energies = []
             append = mutant_energies.append
             charged_system = copy.deepcopy(self.wt_system)
-            FSim.apply_charges(self, charged_system.getForce(self.nonbonded_index), charge)
+            FSim.apply_charges(self, charged_system.getForce(self.nonbonded_index), charge, index=index)
             context = FSim.build_context(self, charged_system)
-            for i, frame in enumerate(FSim.frames(self, dcd, top, maxframes=num_frames)):
+            for frame in FSim.frames(self, dcd, top, maxframes=num_frames):
                 context.setPositions(frame.xyz[0])
+                context.setPeriodicBoxVectors(frame.unitcell_vectors[0][0],
+                                              frame.unitcell_vectors[0][1], frame.unitcell_vectors[0][2])
                 energy = context.getState(getEnergy=True, groups={self.nonbonded_index}).getPotentialEnergy()
-                print(energy)
                 append(energy / KJ_M)
             mutants_frame_energies.append(mutant_energies)
         return mutants_frame_energies

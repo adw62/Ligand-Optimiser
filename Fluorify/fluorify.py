@@ -107,6 +107,7 @@ class Scanning(object):
         print(solvent_free_energy)
 
 
+
         for i, energy in enumerate(complex_free_energy):
             atom_index = int(target_atoms[i])-1
             print('dG for molecule{}.mol2 with'
