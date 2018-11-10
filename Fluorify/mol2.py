@@ -117,50 +117,48 @@ class Mol2(object):
                          bonds=new_bond_data, other=self.data['OTHER'])
     """
 
-    def mutate_one_element(self, atom, new_element):
-        new_atom_data = []
+    def mutate_atoms(self, atoms, new_element):
+        data = self.data['ATOM']
         new_element = new_element.split('.')
-
         if len(new_element) > 1:
             tmp = new_element[0]
             new_element[0] = new_element[0] + '.' + new_element[1]
             new_element[1] = tmp
-
-        for line in self.data['ATOM']:
-            old_element = []
-            if int(line.split()[0]) is int(atom):
-                old_element.append(str(line.split()[5]))
-                s = str(line.split()[1])
-                old_element.append(''.join([i for i in s if not i.isdigit()]))
-                for i, entry in enumerate(new_element):
-                    line = line.replace(old_element[i], entry)
-                new_atom_data.append(line)
-            else:
-                new_atom_data.append(line)
+        for atom in atoms:
+            new_atom_data = []
+            for line in data:
+                old_element = []
+                if int(line.split()[0]) is int(atom):
+                    old_element.append(str(line.split()[5]))
+                    s = str(line.split()[1])
+                    old_element.append(''.join([i for i in s if not i.isdigit()]))
+                    for i, entry in enumerate(new_element):
+                        line = line.replace(old_element[i], entry)
+                    new_atom_data.append(line)
+                else:
+                    new_atom_data.append(line)
+                data = new_atom_data
 
         return Mol2(molecule=self.data['MOLECULE'], atoms=new_atom_data,
                     bonds=self.data['BOND'], other=self.data['OTHER'])
 
-    def mutate_elements(self, atoms, new_element):
+    def mutate(self, mutations, new_element):
         mutated_systems = []
-        for atom in atoms:
-            mutated_system = Mol2.mutate_one_element(self, atom, new_element)
+        for atoms in mutations:
+            mutated_system = Mol2.mutate_atoms(self, atoms, new_element)
             mutated_systems.append(mutated_system)
         return mutated_systems
 
 
 class MutatedLigand(object):
-    def __init__(self, file_path, file_name):
+    def __init__(self, file_path, mol_name, net_charge):
         """A class for extracting parameters from a mutated ligand in a mol2 file.
         file_path: location of ligand file
-        file_name: name of ligand file
+        mol_name: name of mol file
         """
-        name, extension = os.path.splitext(file_name)
-        if extension == '.mol2':
-            run_ante(file_path, file_name, name)
-            MutatedLigand.create_system(self, file_path, name)
-        else:
-            logging.error('Input {} not found or incorrect format'.format(file_path + file_name))
+        file_name = mol_name+'.mol2'
+        run_ante(file_path, file_name, mol_name, net_charge)
+        MutatedLigand.create_system(self, file_path, mol_name)
 
     def create_system(self, file_path, name):
         parameters_file_path = file_path + name + '.prmtop'
@@ -176,16 +174,24 @@ class MutatedLigand(object):
         for index in range(system.getNumParticles()):
             charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
             ligand_charge.append(charge)
-        return (ligand_charge)
+        return ligand_charge
 
-    def get_other_particleparameters():
-        pass
+    def get_vdw(self):
+        system = self.system
+        vdw = []
+        for force in system.getForces():
+            if isinstance(force, mm.NonbondedForce):
+                nonbonded_force = force
+        for index in range(system.getNumParticles()):
+            charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
+            vdw.append(sigma, epsilon)
+        return vdw
 
-
-def run_ante(file_path, file_name, name):
+def run_ante(file_path, file_name, name, net_charge):
     if os.path.exists(file_path+name+'.prmtop'):
         print('{0} found skipping antechamber and tleap for {1}'.format(file_path+name+'.prmtop', name))
     else:
-        moltool.amber.run_antechamber(molecule_name=file_path+name, input_filename=file_path+file_name)
-        moltool.amber.run_tleap(molecule_name=file_path+name, gaff_mol2_filename=file_path+name+'.gaff.mol2',
-                                frcmod_filename=file_path+name+'.frcmod')
+        moltool.amber.run_antechamber(molecule_name=file_path+name,
+                                      input_filename=file_path+file_name, net_charge=net_charge)
+        moltool.amber.run_tleap(molecule_name=file_path+name,
+                                gaff_mol2_filename=file_path+name+'.gaff.mol2', frcmod_filename=file_path+name+'.frcmod')

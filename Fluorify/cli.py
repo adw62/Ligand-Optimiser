@@ -10,8 +10,8 @@ from docopt import docopt
 usage = """
 FLUORIFY
 Usage:
-  Fluorify [--input_folder=STRING] [--output_folder=STRING] [--mol_file=STRING] [--ligand_name=STRING] [--complex_name=STRING] 
-           [--solvent_name=STRING] [--exclusion_list=LIST] [--num_frames=INT] [--job_type=STRING]...
+  Fluorify [--output_folder=STRING] [--mol_file=STRING] [--ligand_name=STRING] [--complex_name=STRING] 
+           [--solvent_name=STRING] [--atom_list=LIST] [--num_frames=INT] [--net_charge=INT] [--job_type=STRING]...
 """
 
 
@@ -19,12 +19,6 @@ def main(argv=None):
     args = docopt(usage, argv=argv, options_first=True)
 
     msg = 'No {0} specified using default {1}'
-
-    if args['--input_folder']:
-        input_folder = args['--input_folder']
-    else:
-        input_folder = './input/'
-        print(msg.format('input folder', input_folder))
 
     if args['--mol_file']:
         mol_file = args['--mol_file']
@@ -50,10 +44,19 @@ def main(argv=None):
         solvent_name = 'solvent'
         print(msg.format('solvent name', solvent_name))
 
-    if args['--exclusion_list']:
-        exclusion_list = args['--exclusion_list']
+    if args['--atom_list']:
+        atom_list = []
+        pairs = args['--atom_list']
+        pairs = pairs.replace(" ", "")
+        pairs = pairs.split('and')
+        for pair in pairs:
+            tmp = []
+            pair = pair.split(',')
+            for atom in pair:
+                tmp.append(atom)
+            atom_list.append(tmp)
     else:
-        exclusion_list = []
+        atom_list = []
 
     if args['--job_type']:
         job_type = args['--job_type'][0]
@@ -84,6 +87,12 @@ def main(argv=None):
         num_frames = 9500
         print(msg.format('number of frames', num_frames))
 
-    Scanning(input_folder, output_folder, mol_file, ligand_name,
-             complex_name, solvent_name, job_type, exclusion_list, num_frames)
+    if args['--net_charge']:
+        net_charge = int(args['--net_charge'])
+    else:
+        net_charge = None
+        print(msg.format('net charge', net_charge))
+
+    Scanning(output_folder, mol_file, ligand_name, net_charge,
+             complex_name, solvent_name, job_type, atom_list, num_frames)
 

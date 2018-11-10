@@ -53,6 +53,23 @@ class FSim(object):
             raise ValueError('Did not find ligand in supplied topology by name {}'.format(ligand_name))
         return ligand_atoms
 
+    def mute_atoms(self, charges, vdw, atoms_to_mute):
+        """
+        pseudo code for muting atom in case it was removed as part of perturbation
+        """
+        q = []
+        eps_sig = []
+        for i, _ in enumerate(self.ligand_atoms):
+            if i == atoms_to_mute:
+                q.append(0.0)
+                eps_sig.append(0.0, 0.0)
+                q.append(charges[i])
+                eps_sig.append(vdw[i][0], vdw[i][1])
+            else:
+                q.append(charges[i])
+                eps_sig.append(vdw[i][0], vdw[i][1])
+        return q, eps_sig
+
     def treat_phase(self, ligand_charges, dcd, top, num_frames):
         wildtype_energy = FSim.get_wildtype_energy(self, dcd, top, num_frames)
         mutant_energy = FSim.get_mutant_energy(self, ligand_charges, dcd, top, num_frames)
@@ -75,7 +92,6 @@ class FSim(object):
             context.setPeriodicBoxVectors(frame.unitcell_vectors[0][0],
                                           frame.unitcell_vectors[0][1], frame.unitcell_vectors[0][2])
             energy = context.getState(getEnergy=True, groups={self.nonbonded_index}).getPotentialEnergy()
-            print(energy)
             append(energy/KJ_M)
         return wildtype_frame_energies
 
@@ -93,6 +109,7 @@ class FSim(object):
         mutants_frame_energies = []
         KJ_M = unit.kilojoule_per_mole
         for index, charge in enumerate(charges):
+            print('Computing potential for mutant {0}/{1}'.format(index+1, len(charges)))
             mutant_energies = []
             append = mutant_energies.append
             charged_system = copy.deepcopy(self.wt_system)
