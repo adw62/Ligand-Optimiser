@@ -115,7 +115,6 @@ class Mol2(object):
         Mol2.update_data(self, new_molecule_data, self.data['ATOM'],
                          self.data['BOND'], self.data['OTHER'])
 
-
     def remove_atom(self, atom):
         #need to index from 1 to interface with mol2 file
         atom += 1

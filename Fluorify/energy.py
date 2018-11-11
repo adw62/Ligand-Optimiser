@@ -15,7 +15,7 @@ kT = kB * T # Unit: kJ/mol
 
 
 class FSim(object):
-    def __init__(self, ligand_name, sim_name, input_folder, charge_only=True):
+    def __init__(self, ligand_name, sim_name, input_folder, charge_only):
         """ A class for creating OpenMM context from input files and calculating free energy
         change when modifying the parameters of the system in the context.
 

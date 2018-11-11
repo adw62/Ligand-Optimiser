@@ -90,7 +90,11 @@ class Scanning(object):
 
         ligand_parameters = []
         for i, ligand in enumerate(mutated_ligands):
-            ligand_parameters.append(ligand.get_parameters(atoms_to_mute[i]))
+            if atoms_to_mute is None:
+                atoms = []
+            else:
+                atoms = atoms_to_mute[i]
+            ligand_parameters.append(ligand.get_parameters(atoms))
 
         t1 = time.time()
         print('Took {} seconds'.format(t1 - t0))
@@ -159,8 +163,10 @@ def add_fluorines(mol, job_type, atom_list):
     if len(atom_list[0]) == 0:
         carbon_type = 'C.' + job_type[1]
         carbons = Mol2.get_atom_by_string(mol, carbon_type)
+        carbons_neighbours = []
+        for atom in carbons:
+            carbons_neighbours.extend(Mol2.get_bonded_neighbours(mol, atom))
         hydrogens = Mol2.get_atom_by_string(mol, 'H')
-        carbons_neighbours = Mol2.get_bonded_neighbours(mol, carbons)
         bonded_h = [x for x in hydrogens if x in carbons_neighbours]
         bonded_h = [bonded_h[i:i+1] for i in range(0, len(bonded_h), 1)]
     else:
@@ -179,7 +185,7 @@ def add_nitrogens(mol, job_type, atom_list):
     Look for carbons with one hydrogen neighbour.
     Reduce list of carbons to those with one hydrogen neighbour.
     Make a note of which hydrogen is the neighbour.
-    Swap the carbon for a nitrogen and hydrogen for dummy.
+    Swap the carbon for a nitrogen and label hydrogen to be muted
     This should be making Pyridine.
     """
     new_element = job_type[0]
@@ -203,11 +209,11 @@ def add_nitrogens(mol, job_type, atom_list):
     else:
         #TODO
         pass
-
     mutated_systems = Mol2.mutate(mol, carbons, new_element)
     for i, mutant in enumerate(mutated_systems):
         mutant.remove_atom(hydrogens_to_remove[i][0])
     return mutated_systems, carbons, hydrogens_to_remove
+
 
 def get_atom_list(file, resname):
     atoms = []
