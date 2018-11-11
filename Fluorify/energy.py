@@ -15,7 +15,7 @@ kT = kB * T # Unit: kJ/mol
 
 
 class FSim(object):
-    def __init__(self, ligand_name, sim_name, input_folder):
+    def __init__(self, ligand_name, sim_name, input_folder, charge_only=True):
         """ A class for creating OpenMM context from input files and calculating free energy
         change when modifying the parameters of the system in the context.
 
@@ -23,7 +23,7 @@ class FSim(object):
         sim_name: complex or solvent
         input_folder: input directory
         """
-
+        self.charge_only = charge_only
         #Create system from input files
         sim_dir = input_folder + sim_name + '/'
         self.snapshot = md.load(sim_dir + sim_name + '.pdb')
@@ -53,26 +53,11 @@ class FSim(object):
             raise ValueError('Did not find ligand in supplied topology by name {}'.format(ligand_name))
         return ligand_atoms
 
-    def mute_atoms(self, charges, vdw, atoms_to_mute):
-        """
-        pseudo code for muting atom in case it was removed as part of perturbation
-        """
-        q = []
-        eps_sig = []
-        for i, _ in enumerate(self.ligand_atoms):
-            if i == atoms_to_mute:
-                q.append(0.0)
-                eps_sig.append(0.0, 0.0)
-                q.append(charges[i])
-                eps_sig.append(vdw[i][0], vdw[i][1])
-            else:
-                q.append(charges[i])
-                eps_sig.append(vdw[i][0], vdw[i][1])
-        return q, eps_sig
 
-    def treat_phase(self, ligand_charges, dcd, top, num_frames):
+
+    def treat_phase(self, ligand_parameters, dcd, top, num_frames):
         wildtype_energy = FSim.get_wildtype_energy(self, dcd, top, num_frames)
-        mutant_energy = FSim.get_mutant_energy(self, ligand_charges, dcd, top, num_frames)
+        mutant_energy = FSim.get_mutant_energy(self, ligand_parameters, dcd, top, num_frames)
         phase_free_energy = get_free_energy(mutant_energy, wildtype_energy)
         return phase_free_energy
 
@@ -95,26 +80,30 @@ class FSim(object):
             append(energy/KJ_M)
         return wildtype_frame_energies
 
-    def apply_charges(self, force, charge, index=None, write_charges=False):
-        f = open('charges_{}.out'.format(index), 'w')
+    def apply_parameters(self, force, mutant_parameters, write_charges=False):
+        f = open('charges.out', 'w')
         for i, atom_idx in enumerate(self.ligand_atoms):
             index = int(atom_idx)
-            og_charge, sigma, epsilon = force.getParticleParameters(index)
-            force.setParticleParameters(index, charge[i], sigma, epsilon)
+            charge, sigma, epsilon = force.getParticleParameters(index)
+            if self.charge_only:
+                force.setParticleParameters(index, mutant_parameters[i][0], sigma, epsilon)
+            else:
+                force.setParticleParameters(index, mutant_parameters[i][0],
+                                            mutant_parameters[i][1], mutant_parameters[i][2])
             if write_charges:
-                f.write('{0}    {1}\n'.format(og_charge/e, charge[i]/e))
+                f.write('{0}    {1}\n'.format(charge/e, mutant_parameters[i][0]/e))
         f.close()
 
-    def get_mutant_energy(self, charges, dcd, top, num_frames):
+    def get_mutant_energy(self, parameters, dcd, top, num_frames):
         mutants_frame_energies = []
         KJ_M = unit.kilojoule_per_mole
-        for index, charge in enumerate(charges):
-            print('Computing potential for mutant {0}/{1}'.format(index+1, len(charges)))
+        for index, mutant_parameters in enumerate(parameters):
+            print('Computing potential for mutant {0}/{1}'.format(index+1, len(parameters)))
             mutant_energies = []
             append = mutant_energies.append
-            charged_system = copy.deepcopy(self.wt_system)
-            FSim.apply_charges(self, charged_system.getForce(self.nonbonded_index), charge, index=index)
-            context = FSim.build_context(self, charged_system)
+            mutant_system = copy.deepcopy(self.wt_system)
+            FSim.apply_parameters(self, mutant_system.getForce(self.nonbonded_index), mutant_parameters)
+            context = FSim.build_context(self, mutant_system)
             for frame in FSim.frames(self, dcd, top, maxframes=num_frames):
                 context.setPositions(frame.xyz[0])
                 context.setPeriodicBoxVectors(frame.unitcell_vectors[0][0],

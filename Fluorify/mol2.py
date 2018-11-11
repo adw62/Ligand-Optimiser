@@ -4,6 +4,8 @@ import os
 import logging
 import openmoltools as moltool
 import simtk.openmm as mm
+import copy
+from simtk import unit
 
 class Mol2(object):
     def __init__(self, molecule=None, atoms=None, bonds=None, other=None):
@@ -14,7 +16,7 @@ class Mol2(object):
         bonds: All information in mol2 file under '@<TRIPOS>BOND' header
         other: All information in mol2 file not under MOLECULE, ATOM or BOND header
         """
-        self.data = {'MOLECULE': molecule, 'ATOM': atoms, 'BOND': bonds, 'OTHER': other}
+        self.data = copy.deepcopy({'MOLECULE': molecule, 'ATOM': atoms, 'BOND': bonds, 'OTHER': other})
 
     def get_data(self, ligand_file_path, ligand_file_name):
         ligand = open(ligand_file_path+ligand_file_name)
@@ -33,44 +35,37 @@ class Mol2(object):
                 else:
                     key = 'OTHER'
             if line not in headers:
-                data[key].append(line)
+                if key == 'ATOM' or key == 'BOND':
+                    line = line.split()
+                    data[key].append(line)
+                else:
+                    data[key].append(line)
         self.data = data
 
     def write_mol2(self, file_path, file_name):
         mol2 = []
-        headers = {'MOLECULE': '@<TRIPOS>MOLECULE\n', 'ATOM': '@<TRIPOS>ATOM\n', 'BOND': '@<TRIPOS>BOND\n', 'OTHER': ''}
+        headers = {'MOLECULE': '@<TRIPOS>MOLECULE\n', 'ATOM': '@<TRIPOS>ATOM\n',
+                   'BOND': '@<TRIPOS>BOND\n', 'OTHER': ''}
         for k, v in self.data.items():
             mol2.append(headers[k])
-            for line in v:
-                mol2.append(line)
+            if k == 'ATOM':
+                for line in v:
+                    line = ('{0:>7} {1:<10} {2:<9} {3:<9} {4:<5} {5:<9} {6:<1} {7:<11} {8}\n'.format(*line))
+                    mol2.append(line)
+            elif k == 'BOND':
+                for line in v:
+                    line = ('{0:>6} {1:>4} {2:>4} {3:>1}\n'.format(*line))
+                    mol2.append(line)
+            else:
+                for line in v:
+                    mol2.append(line)
         f = open(file_path+file_name+'.mol2', 'w')
         for line in mol2:
             f.write(line)
         f.close()
 
     def update_data(self, molecule, atoms, bonds, other):
-        #need to reindex bonds and remove atoms/bonds from molecule header
-        new_atom_data = atoms
-        new_bond_data = bonds
-        """
-        new_atom_data = []
-        bonds_to_ammend = []
-        for i, line in enumerate(atoms):
-            if int(line.split()[0]) != i+1:
-                bonds_to_ammend.append(line.split()[0])
-                line = line.replace('    {} '.format(line.split()[0]), '    {} '.format(i+1))
-                new_atom_data.append(line)
-            else:
-                new_atom_data.append(line)
-        new_bond_data = []
-        for i, line in enumerate(bonds):
-            if int(line.split()[0]) != i+1:
-                line = line.replace('    {} '.format(line.split()[0]), '    {} '.format(i+1))
-                new_bond_data.append(line)
-            else:
-                new_bond_data.append(line)
-        """
-        data = {'MOLECULE': molecule, 'ATOM': new_atom_data, 'BOND': new_bond_data, 'OTHER': other}
+        data = {'MOLECULE': molecule, 'ATOM': atoms, 'BOND': bonds, 'OTHER': other}
         self.data = data
 
     def get_atom_by_string(self, string):
@@ -78,67 +73,97 @@ class Mol2(object):
             logger.error('No data to search. Please use get_data() first')
         atoms = []
         for line in self.data['ATOM']:
-            if line.split()[5] == string:
-                atoms.append(line.split()[0])
+            if line[5] == string:
+                atoms.append(line[0])
         err_msg = 'Atom selection {} not recognised or atoms of this type are not in ligand'.format(string)
         if len(atoms) == 0:
             logging.error(err_msg)
         return atoms
 
-    def get_bonded_neighbours(self, atoms=[]):
+    def get_bonded_neighbours(self, atom):
         neighbours = []
         for line in self.data['BOND']:
-            if line.split()[1] in atoms:
-                neighbours.append(line.split()[2])
+            if int(line[1]) is int(atom):
+                neighbours.append(line[2])
+            if int(line[2]) is int(atom):
+                neighbours.append((line[1]))
         return neighbours
 
-    """
-    def remove_atom(self, atom):
-        if atom == None:
-            return
+    def reindex_data(self, num_atoms, num_bonds, atom, bond):
+        new_molecule_data = []
+        for line in self.data['MOLECULE']:
+            try:
+                if int(line.split()[0]) == num_atoms:
+                    line = line.replace(str(num_atoms), str(num_atoms-1))
+                    line = line.replace(str(num_bonds), str(num_bonds-1))
+            except:
+                pass
+            new_molecule_data.append(line)
 
+        for i, line in enumerate(self.data['ATOM']):
+            if i >= (int(atom)-1):
+                line[0] = i+1
+
+        for i, line in enumerate(self.data['BOND']):
+            if i >= (int(bond)):
+                line[0] = i+1
+            if int(line[1]) >= int(atom):
+                line[1] = str(int(line[1])-1)
+            if int(line[2]) >= int(atom):
+                line[2] = str(int(line[2])-1)
+
+        Mol2.update_data(self, new_molecule_data, self.data['ATOM'],
+                         self.data['BOND'], self.data['OTHER'])
+
+
+    def remove_atom(self, atom):
+        #need to index from 1 to interface with mol2 file
+        atom += 1
         new_atom_data = []
+        num_atoms = 0
         for line in self.data['ATOM']:
-            if int(line.split()[0]) is int(atom):
-                print(line)
-            else:
+            num_atoms += 1
+            if int(line[0]) is not int(atom):
                 new_atom_data.append(line)
 
         new_bond_data = []
-        for line in self.data['BOND']:
-            if int(line.split()[1]) is int(atom):
-                print(line)
-            elif int(line.split()[2]) is int(atom):
-                print(line)
+        num_bonds = 0
+        bond = []
+        for i, line in enumerate(self.data['BOND']):
+            num_bonds += 1
+            if int(line[1]) is int(atom):
+                bond.append(i)
+            elif int(line[2]) is int(atom):
+                bond.append(i)
             else:
                 new_bond_data.append(line)
+        if len(bond) > 1:
+            raise ValueError('Atom selected to be removed had more than one bond.'
+                             'Currently can only remove atoms with one bond')
 
         Mol2.update_data(self, molecule=self.data['MOLECULE'], atoms=new_atom_data,
                          bonds=new_bond_data, other=self.data['OTHER'])
-    """
+        Mol2.reindex_data(self, num_atoms, num_bonds, atom, bond[0])
 
     def mutate_atoms(self, atoms, new_element):
-        data = self.data['ATOM']
+        data = copy.deepcopy(self.data['ATOM'])
         new_element = new_element.split('.')
         if len(new_element) > 1:
             tmp = new_element[0]
             new_element[0] = new_element[0] + '.' + new_element[1]
             new_element[1] = tmp
-        for atom in atoms:
+        else:
+            new_element.append(new_element[0])
+        for i, atom in enumerate(atoms):
             new_atom_data = []
             for line in data:
-                old_element = []
-                if int(line.split()[0]) is int(atom):
-                    old_element.append(str(line.split()[5]))
-                    s = str(line.split()[1])
-                    old_element.append(''.join([i for i in s if not i.isdigit()]))
-                    for i, entry in enumerate(new_element):
-                        line = line.replace(old_element[i], entry)
+                if int(line[0]) is int(atom):
+                    line[5] = new_element[0]
+                    line[1] = (new_element[1] + str(i+1))
                     new_atom_data.append(line)
                 else:
                     new_atom_data.append(line)
                 data = new_atom_data
-
         return Mol2(molecule=self.data['MOLECULE'], atoms=new_atom_data,
                     bonds=self.data['BOND'], other=self.data['OTHER'])
 
@@ -165,27 +190,21 @@ class MutatedLigand(object):
         parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
         self.system = parameters_file.createSystem()
 
-    def get_charge(self):
+    def get_parameters(self, atoms_to_mute):
         system = self.system
-        ligand_charge = []
+        ligand_parameters = []
         for force in system.getForces():
             if isinstance(force, mm.NonbondedForce):
                 nonbonded_force = force
         for index in range(system.getNumParticles()):
-            charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
-            ligand_charge.append(charge)
-        return ligand_charge
-
-    def get_vdw(self):
-        system = self.system
-        vdw = []
-        for force in system.getForces():
-            if isinstance(force, mm.NonbondedForce):
-                nonbonded_force = force
-        for index in range(system.getNumParticles()):
-            charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
-            vdw.append(sigma, epsilon)
-        return vdw
+            if index in atoms_to_mute:
+                charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
+                ligand_parameters.append([0.0*charge, 1.0*unit.angstrom, epsilon*0.0])
+                ligand_parameters.append([charge, sigma, epsilon])
+            else:
+                charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
+                ligand_parameters.append([charge, sigma, epsilon])
+        return ligand_parameters
 
 def run_ante(file_path, file_name, name, net_charge):
     if os.path.exists(file_path+name+'.prmtop'):

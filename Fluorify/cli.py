@@ -11,7 +11,7 @@ usage = """
 FLUORIFY
 Usage:
   Fluorify [--output_folder=STRING] [--mol_file=STRING] [--ligand_name=STRING] [--complex_name=STRING] 
-           [--solvent_name=STRING] [--atom_list=LIST] [--num_frames=INT] [--net_charge=INT] [--job_type=STRING]...
+           [--solvent_name=STRING] [--atom_list=LIST] [--num_frames=INT] [--net_charge=INT] [--charge_only=BOOL] [--job_type=STRING]...
 """
 
 
@@ -61,7 +61,7 @@ def main(argv=None):
     if args['--job_type']:
         job_type = args['--job_type'][0]
         job_name = args['--job_type'][0]
-        allowed_elements = ['F', 'Cl']
+        allowed_elements = ['F', 'Cl', 'N.ar']
         allowed_carbon_types = ['1', '2', '3', 'ar']
         job_type = job_type.split('_')
         if job_type[0] not in allowed_elements:
@@ -93,6 +93,12 @@ def main(argv=None):
         net_charge = None
         print(msg.format('net charge', net_charge))
 
+    if args['--charge_only']:
+        charge_only = bool(args['--net_charge'])
+    else:
+        charge_only = False
+
+
     Scanning(output_folder, mol_file, ligand_name, net_charge,
-             complex_name, solvent_name, job_type, atom_list, num_frames)
+             complex_name, solvent_name, job_type, atom_list, num_frames, charge_only)
 
