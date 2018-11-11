@@ -25,9 +25,6 @@ class Scanning(object):
 
         if charge_only == True:
             print('Mutating ligand charges only...')
-            if job_type[0] == 'N.ar':
-                print('Van der Walls must be set for pyridine scanning')
-                print('Ignoring charge only option')
         else:
             print('Mutating all ligand parameters...')
 
