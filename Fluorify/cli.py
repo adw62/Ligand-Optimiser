@@ -56,12 +56,12 @@ def main(argv=None):
                 tmp.append(atom)
             atom_list.append(tmp)
     else:
-        atom_list = []
+        atom_list = None
 
     if args['--job_type']:
         job_type = args['--job_type'][0]
         job_name = args['--job_type'][0]
-        allowed_elements = ['F', 'Cl', 'N.ar']
+        allowed_elements = ['F', 'Cl', 'N', 'NxF', 'NxCl']
         allowed_carbon_types = ['1', '2', '3', 'ar']
         job_type = job_type.split('_')
         if job_type[0] not in allowed_elements:
@@ -97,6 +97,10 @@ def main(argv=None):
         charge_only = bool(args['--net_charge'])
     else:
         charge_only = False
+    if charge_only == True:
+        print('Mutating ligand charges only...')
+    else:
+        print('Mutating all ligand parameters...')
 
 
     Scanning(output_folder, mol_file, ligand_name, net_charge,

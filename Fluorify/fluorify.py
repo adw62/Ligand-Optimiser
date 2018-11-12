@@ -23,11 +23,6 @@ class Scanning(object):
         output_folder: name for output directory. Default, mol_file + job_type
         """
 
-        if charge_only == True:
-            print('Mutating ligand charges only...')
-        else:
-            print('Mutating all ligand parameters...')
-
         self.net_charge = net_charge
         #Prepare directories/files and read in ligand from mol2 file
         mol_file = mol_file + '.mol2'
@@ -63,12 +58,7 @@ class Scanning(object):
                              'Charges will not be applied where expected')
 
         #Generate atom selections
-        atoms = atom_selection(atom_list)
-        if job_type[0] == 'N.ar':
-            mutated_systems, target_atoms, atoms_to_mute = add_nitrogens(self.mol, job_type, atoms)
-        else:
-            mutated_systems, target_atoms = add_fluorines(self.mol, job_type, atoms)
-            atoms_to_mute = None
+        mutated_systems, target_atoms, atoms_to_mute = Scanning.perturbation(self, job_type, atom_list)
 
         """
         Write Mol2 files with substitutions of selected atoms.
@@ -121,6 +111,7 @@ class Scanning(object):
         print('Computing solvent potential energies...')
         solvent_free_energy = FSim.treat_phase(solvent, ligand_parameters, sol_dcd, sol_top, num_frames)
 
+        #RESULT
         for i, energy in enumerate(complex_free_energy):
             atom_names = []
             atoms = target_atoms[i]
@@ -130,34 +121,56 @@ class Scanning(object):
 
             print('dG for molecule{}.mol2 with'
                   ' {} substituted for {}'.format(str(i), atom_names, job_type[0]))
-            print(energy - solvent_free_energy[i])
+            binding_free_energy = energy - solvent_free_energy[i]
+            print(binding_free_energy)
 
         t1 = time.time()
         print('Took {} seconds'.format(t1 - t0))
 
+    def perturbation(self, job_type, atom_list):
+
+        job_type[0] = job_type[0].split('x')
+        if len(job_type[0]) == 1:
+            atoms = atom_selection(atom_list)
+            if job_type[0] == ['N']:
+                job_type[0] = 'N.ar'
+                mutated_systems, target_atoms, atoms_to_mute = add_nitrogens(self.mol, job_type, atoms)
+            else:
+                job_type[0] = job_type[0][0]
+                mutated_systems, target_atoms, atoms_to_mute = add_fluorines(self.mol, job_type, atoms)
+        else:
+            #TODO: Could do mixed subs here or in opt wrapper
+            raise ValueError('Mixed substitutions are not yet implemented')
+
+        return mutated_systems, target_atoms, atoms_to_mute
+
+
 def atom_selection(atom_list):
+
+    if atom_list is None:
+        return None
+
     #generate all permutations
     atom_list = list(itertools.product(*atom_list))
-    if len(atom_list) > 0:
-        #remove permutations with duplicates
-        tmp = []
-        for x in atom_list:
-            if len(x) == len(set(x)):
-                tmp.append(x)
-        atom_list = tmp
-        atom_list = [list(sorted(q)) for q in atom_list]
-        #remove equivilant permutations
-        tmp = []
-        for x in atom_list:
-            if x not in tmp:
-                tmp.append(x)
-        atom_list = tmp
+    #remove permutations with duplicates
+    tmp = []
+    for x in atom_list:
+        if len(x) == len(set(x)):
+            tmp.append(x)
+    atom_list = tmp
+    atom_list = [list(sorted(q)) for q in atom_list]
+    #remove equivilant permutations
+    tmp = []
+    for x in atom_list:
+        if x not in tmp:
+            tmp.append(x)
+    atom_list = tmp
     return atom_list
 
 
 def add_fluorines(mol, job_type, atom_list):
     new_element = job_type[0]
-    if len(atom_list[0]) == 0:
+    if atom_list is None:
         carbon_type = 'C.' + job_type[1]
         carbons = Mol2.get_atom_by_string(mol, carbon_type)
         carbons_neighbours = []
@@ -174,7 +187,7 @@ def add_fluorines(mol, job_type, atom_list):
                 raise ValueError('Atoms {} are not recognised as hydrogens and therefore can not be fluorinated'.format(tmp))
         bonded_h = atom_list
     mutated_systems = Mol2.mutate(mol, bonded_h, new_element)
-    return mutated_systems, bonded_h
+    return mutated_systems, bonded_h, None
 
 
 def add_nitrogens(mol, job_type, atom_list):
@@ -186,29 +199,51 @@ def add_nitrogens(mol, job_type, atom_list):
     This should be making Pyridine.
     """
     new_element = job_type[0]
-    if len(atom_list[0]) == 0:
-        carbon_type = 'C.' + job_type[1]
+    carbon_type = 'C.' + job_type[1]
+    if atom_list is None:
         carbons = Mol2.get_atom_by_string(mol, carbon_type)
         hydrogens = Mol2.get_atom_by_string(mol, 'H')
         hydrogens_to_remove = []
         c_tmp = []
         for atom in carbons:
-            h_tmp = []
+            h_neigh = []
             neighbours = Mol2.get_bonded_neighbours(mol, atom)
             for neighbour in neighbours:
                 if neighbour in hydrogens:
-                    h_tmp.append(neighbour)
-            if len(h_tmp) == 1:
+                    h_neigh.append(neighbour)
+            if len(h_neigh) == 1:
                 #need to index from 0 to interface with openmm
-                hydrogens_to_remove.append([int(x)-1 for x in h_tmp])
+                hydrogens_to_remove.append([int(x)-1 for x in h_neigh])
                 c_tmp.append([atom])
         carbons = c_tmp
     else:
-        #TODO
-        pass
+        carbons = Mol2.get_atom_by_string(mol, carbon_type)
+        hydrogens = Mol2.get_atom_by_string(mol, 'H')
+        hydrogens_to_remove = []
+        for pair in atom_list:
+            tmp = [x for x in pair if x not in carbons]
+            if len(tmp) > 0:
+                raise ValueError('Atoms {} are not recognised as carbons and therefore can not be pyridinated'.format(tmp))
+        carbons = atom_list
+        for pair in carbons:
+            h_tmp = []
+            for atom in pair:
+                h_neigh = []
+                neighbours = Mol2.get_bonded_neighbours(mol, atom)
+                for neighbour in neighbours:
+                    if neighbour in hydrogens:
+                        h_neigh.append(neighbour)
+                if len(h_neigh) != 1:
+                    raise ValueError('Atom {} has more than one neighbouring hydrogen can not be pyridinated'.format(atom))
+                else:
+                    # need to index from 0 to interface with openmm
+                    h_tmp.extend(int(x) - 1 for x in h_neigh)
+            h_tmp.sort(reverse=True)
+            hydrogens_to_remove.append(h_tmp)
     mutated_systems = Mol2.mutate(mol, carbons, new_element)
     for i, mutant in enumerate(mutated_systems):
-        mutant.remove_atom(hydrogens_to_remove[i][0])
+        for atom in hydrogens_to_remove[i]:
+            mutant.remove_atom(atom)
     return mutated_systems, carbons, hydrogens_to_remove
 
 

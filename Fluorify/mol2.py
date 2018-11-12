@@ -69,8 +69,6 @@ class Mol2(object):
         self.data = data
 
     def get_atom_by_string(self, string):
-        if self.data == None:
-            logger.error('No data to search. Please use get_data() first')
         atoms = []
         for line in self.data['ATOM']:
             if line[5] == string:
