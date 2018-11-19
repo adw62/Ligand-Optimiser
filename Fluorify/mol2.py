@@ -68,14 +68,17 @@ class Mol2(object):
         data = {'MOLECULE': molecule, 'ATOM': atoms, 'BOND': bonds, 'OTHER': other}
         self.data = data
 
-    def get_atom_by_string(self, string):
+    def get_atom_by_string(self, string, wild_card=False):
         atoms = []
         for line in self.data['ATOM']:
-            if line[5] == string:
-                atoms.append(line[0])
-        err_msg = 'Atom selection {} not recognised or atoms of this type are not in ligand'.format(string)
+            if wild_card == True:
+                if string in line[5]:
+                    atoms.append(line[0])
+            else:
+                if line[5] == string:
+                    atoms.append(line[0])
         if len(atoms) == 0:
-            logging.error(err_msg)
+            raise ValueError('Atom selection {} not recognised or atoms of this type are not in ligand'.format(string))
         return atoms
 
     def get_bonded_neighbours(self, atom):

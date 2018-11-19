@@ -11,7 +11,8 @@ usage = """
 FLUORIFY
 Usage:
   Fluorify [--output_folder=STRING] [--mol_file=STRING] [--ligand_name=STRING] [--complex_name=STRING] 
-           [--solvent_name=STRING] [--atom_list=LIST] [--num_frames=INT] [--net_charge=INT] [--charge_only=BOOL] [--job_type=STRING]...
+           [--solvent_name=STRING] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT] [--net_charge=INT] 
+           [--auto_select=STRING] [--charge_only=BOOL] [--job_type=STRING]...
 """
 
 
@@ -29,7 +30,7 @@ def main(argv=None):
     if args['--ligand_name']:
         ligand_name = args['--ligand_name']
     else:
-        ligand_name ='MOL'
+        ligand_name = 'MOL'
         print(msg.format('ligand residue name', ligand_name))
 
     if args['--complex_name']:
@@ -44,9 +45,9 @@ def main(argv=None):
         solvent_name = 'solvent'
         print(msg.format('solvent name', solvent_name))
 
-    if args['--atom_list']:
-        atom_list = []
-        pairs = args['--atom_list']
+    if args['--c_atom_list']:
+        c_atom_list = []
+        pairs = args['--c_atom_list']
         pairs = pairs.replace(" ", "")
         pairs = pairs.split('and')
         for pair in pairs:
@@ -54,31 +55,50 @@ def main(argv=None):
             pair = pair.split(',')
             for atom in pair:
                 tmp.append(atom)
-            atom_list.append(tmp)
+            c_atom_list.append(tmp)
     else:
-        atom_list = None
+        c_atom_list = None
+
+    if args['--h_atom_list']:
+        h_atom_list = []
+        pairs = args['--h_atom_list']
+        pairs = pairs.replace(" ", "")
+        pairs = pairs.split('and')
+        for pair in pairs:
+            tmp = []
+            pair = pair.split(',')
+            for atom in pair:
+                tmp.append(atom)
+            h_atom_list.append(tmp)
+    else:
+        h_atom_list = None
+
+    if args['--auto_select']:
+        auto_select = args['--auto_select']
+        auto = ['1', '2', '3', 'ar']
+        if auto_select not in auto:
+            raise ValueError('Allowed automatic selections {}'.format(auto))
+        if c_atom_list is not None or h_atom_list is not None:
+            raise ValueError('Automatic target atom selection will conflict with populated atom lists')
+    else:
+        if c_atom_list is None and h_atom_list is None:
+            raise ValueError('No target atoms specified')
+        else:
+            auto_select = None
 
     if args['--job_type']:
         job_type = args['--job_type'][0]
-        job_name = args['--job_type'][0]
-        allowed_elements = ['F', 'Cl', 'N', 'NxF', 'NxCl']
-        allowed_carbon_types = ['1', '2', '3', 'ar']
-        job_type = job_type.split('_')
-        if job_type[0] not in allowed_elements:
-            raise ValueError('Allowed elements {}'.format(allowed_elements))
-        elif job_type[1] not in allowed_carbon_types:
-            raise ValueError('Allowed carbon types {}'.format(allowed_carbon_types))
-        else:
-                pass
+        allowed_jobs = ['F', 'Cl', 'N', 'NxF', 'NxCl']
+        if job_type not in allowed_jobs:
+            raise ValueError('Allowed elements {}'.format(allowed_jobs))
     else:
-        job_type = ['F', 'ar']
-        job_name = 'F_ar'
+        job_type = 'F'
         print(msg.format('job_type', job_type))
 
     if args['--output_folder']:
         output_folder = args['--output_folder']
     else:
-        output_folder = './' + mol_file + '_' + job_name + '/'
+        output_folder = './' + mol_file + '_' + job_type + '/'
         print(msg.format('output folder', output_folder))
 
     if args['--num_frames']:
@@ -94,7 +114,7 @@ def main(argv=None):
         print(msg.format('net charge', net_charge))
 
     if args['--charge_only']:
-        charge_only = bool(args['--net_charge'])
+        charge_only = int(args['--charge_only'])
     else:
         charge_only = False
     if charge_only == True:
@@ -102,7 +122,6 @@ def main(argv=None):
     else:
         print('Mutating all ligand parameters...')
 
-
-    Scanning(output_folder, mol_file, ligand_name, net_charge,
-             complex_name, solvent_name, job_type, atom_list, num_frames, charge_only)
+    Scanning(output_folder, mol_file, ligand_name, net_charge, complex_name,
+             solvent_name, job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only)
 

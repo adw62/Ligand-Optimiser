@@ -42,9 +42,13 @@ class FSim(object):
 
     def build_context(self, system):
         integrator = mm.VerletIntegrator(1.0 * unit.femtoseconds)
-        platform = mm.Platform.getPlatformByName('CUDA')
-        properties = {'CudaPrecision': 'mixed'}
-        context = mm.Context(system, integrator, platform, properties)
+        try:
+            platform = mm.Platform.getPlatformByName('CUDA')
+            properties = {'CudaPrecision': 'mixed'}
+            context = mm.Context(system, integrator, platform, properties)
+        except:
+            platform = mm.Platform.getPlatformByName('Reference')
+            context = mm.Context(system, integrator, platform)
         return context
 
     def get_ligand_atoms(self, ligand_name):
