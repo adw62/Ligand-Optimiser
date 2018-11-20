@@ -59,7 +59,7 @@ class Scanning(object):
                              'Charges will not be applied where expected')
 
         #Generate mutant systems with selected pertibations
-        mutated_systems, target_atoms, atoms_to_mute = Scanning.perturbation(self, job_type, auto_select, h_atom_list, c_atom_list)
+        mutated_systems, mutations = Scanning.perturbation(self, job_type, auto_select, h_atom_list, c_atom_list)
 
         """
         Write Mol2 files with substitutions of selected atoms.
@@ -78,11 +78,8 @@ class Scanning(object):
 
         ligand_parameters = []
         for i, ligand in enumerate(mutated_ligands):
-            if atoms_to_mute is None:
-                atoms = []
-            else:
-                atoms = atoms_to_mute[i]
-            ligand_parameters.append(ligand.get_parameters(atoms))
+            mute = mutations[i]['subtract']
+            ligand_parameters.append(ligand.get_parameters(mute))
 
         t1 = time.time()
         print('Took {} seconds'.format(t1 - t0))
@@ -115,8 +112,8 @@ class Scanning(object):
         #RESULT
         for i, energy in enumerate(complex_free_energy):
             atom_names = []
-            atoms = target_atoms[i]
-            for atom in atoms:
+            replace = mutations[i]['replace']
+            for atom in replace:
                 atom_index = int(atom)-1
                 atom_names.append(mol2_ligand_atoms[atom_index])
 
@@ -129,6 +126,10 @@ class Scanning(object):
         print('Took {} seconds'.format(t1 - t0))
 
     def perturbation(self, job_type, auto_select, h_atom_list, c_atom_list):
+        """
+        Takes a job_type with an auto selection or atom_lists and turns this into the correct mutated_systems
+        and a list of mutations to keep track of the mutation applied to each system.
+        """
         job_type = job_type.split('x')
         c_atoms = atom_selection(c_atom_list)
         h_atoms = atom_selection(h_atom_list)
@@ -137,38 +138,30 @@ class Scanning(object):
                 job_type = 'N.ar'
                 if h_atoms is not None:
                     raise ValueError('hydrogen atom list provided but pyridine scanning job requested')
-                mutated_systems, target_atoms, atoms_to_mute = add_nitrogens(self.mol, job_type, auto_select, c_atoms)
-                print(target_atoms)
-                print(atoms_to_mute)
+                mutated_systems, mutations = add_nitrogens(self.mol, job_type, auto_select, c_atoms)
             else:
                 job_type = job_type[0]
                 if c_atoms is not None:
                     raise ValueError('carbon atom list provided but fluorine scanning job requested')
-                mutated_systems, target_atoms, atoms_to_mute = add_fluorines(self.mol, job_type, auto_select, h_atoms)
+                mutated_systems, mutations = add_fluorines(self.mol, job_type, auto_select, h_atoms)
         else:
             if h_atom_list is None or c_atoms is None:
                 raise ValueError('Mixed substitution requested must provided carbon and hydrogen atom lists')
-            mutated_systems = []
-            target_atoms = []
-            atoms_to_mute = []
             job_type[0] = 'N.ar'
-            f_mutated_systems, f_target_atoms, _ = add_fluorines(self.mol, job_type[1], auto_select, h_atoms)
+            mutated_systems = []
+            mutations = []
+            f_mutated_systems, f_mutations = add_fluorines(self.mol, job_type[1], auto_select, h_atoms)
             for i, mol in enumerate(f_mutated_systems):
-                p_mutated_systems, p_target_atoms, p_atoms_to_mute = add_nitrogens(mol, job_type[0], auto_select,
+                p_mutated_systems, p_mutations = add_nitrogens(mol, job_type[0], auto_select,
                                                                                    c_atoms, modified_atom_type=job_type[1])
-
-                #TODO combine
-                print(f_target_atoms[i])
-                print(p_target_atoms)
-
+                #compound flurination and pyridination
+                for j in range(len(p_mutations)):
+                    p_mutations[j]['add'].extend(f_mutations[i]['add'])
+                    p_mutations[j]['subtract'].extend(f_mutations[i]['subtract'])
+                    p_mutations[j]['replace'].extend(f_mutations[i]['replace'])
                 mutated_systems.extend(p_mutated_systems)
-                atoms_to_mute.extend(p_atoms_to_mute)
-                target_atoms.append(target_atoms)
-
-            print(target_atoms)
-            print(atoms_to_mute)
-
-        return mutated_systems, target_atoms, atoms_to_mute
+                mutations.extend(p_mutations)
+        return mutated_systems, mutations
 
 
 def atom_selection(atom_list):
@@ -195,6 +188,7 @@ def atom_selection(atom_list):
 
 
 def add_fluorines(mol, new_element, auto_select, atom_list):
+    mutations = []
     if atom_list is None:
         carbon_type = 'C.' + auto_select
         carbons = Mol2.get_atom_by_string(mol, carbon_type)
@@ -212,7 +206,13 @@ def add_fluorines(mol, new_element, auto_select, atom_list):
                 raise ValueError('Atoms {} are not recognised as hydrogens and therefore can not be fluorinated'.format(tmp))
         bonded_h = atom_list
     mutated_systems = Mol2.mutate(mol, bonded_h, new_element)
-    return mutated_systems, bonded_h, None
+
+    #Build list of dictionaries each dict describes mutation applied corresponding system
+    for i, mutant in enumerate(mutated_systems):
+        mutations.append({'add': [], 'subtract': [], 'replace': []})
+        for atom in bonded_h[i]:
+            mutations[i]['replace'].append(int(atom))
+    return mutated_systems, mutations
 
 
 def add_nitrogens(mol, new_element, auto_select, atom_list, modified_atom_type=None):
@@ -221,8 +221,9 @@ def add_nitrogens(mol, new_element, auto_select, atom_list, modified_atom_type=N
     Reduce list of carbons to those with one hydrogen neighbour.
     Make a note of which hydrogen is the neighbour.
     Swap the carbon for a nitrogen and label hydrogen to be muted
-    This should be making Pyridine.
+    or use user provided list of carbons
     """
+    mutations = []
     if atom_list is None:
         carbon_type = 'C.' + auto_select
         carbons = Mol2.get_atom_by_string(mol, carbon_type)
@@ -244,15 +245,20 @@ def add_nitrogens(mol, new_element, auto_select, atom_list, modified_atom_type=N
         carbons = Mol2.get_atom_by_string(mol, 'C.', wild_card=True)
         hydrogens = Mol2.get_atom_by_string(mol, 'H')
         hydrogens_to_remove = []
+        #Find any atoms which may have already been fluorinated
         if modified_atom_type is not None:
             modified_atoms = Mol2.get_atom_by_string(mol, modified_atom_type)
         else:
             modified_atoms = []
+
+        #check atom list contains only carbon
         for pair in atom_list:
             tmp = [x for x in pair if x not in carbons]
             if len(tmp) > 0:
                 raise ValueError('Atoms {} are not recognised as carbons and therefore can not be pyridinated'.format(tmp))
         carbons = atom_list
+
+        #check if carbons in atom list have one neighbour
         for pair in carbons:
             h_tmp = []
             for atom in pair:
@@ -261,6 +267,7 @@ def add_nitrogens(mol, new_element, auto_select, atom_list, modified_atom_type=N
                 for neighbour in neighbours:
                     if neighbour in hydrogens:
                         h_neigh.append(neighbour)
+                    #catches any atoms which may have previously been hydrogens but have already been flourinated
                     if neighbour in modified_atoms:
                         h_neigh.append(neighbour)
                 if len(h_neigh) != 1:
@@ -270,11 +277,21 @@ def add_nitrogens(mol, new_element, auto_select, atom_list, modified_atom_type=N
                     h_tmp.extend(int(x) - 1 for x in h_neigh)
             h_tmp.sort(reverse=True)
             hydrogens_to_remove.append(h_tmp)
+
+    #Mutate carbons to nitrogen and remove hydrogens
     mutated_systems = Mol2.mutate(mol, carbons, new_element)
     for i, mutant in enumerate(mutated_systems):
         for atom in hydrogens_to_remove[i]:
             mutant.remove_atom(atom)
-    return mutated_systems, carbons, hydrogens_to_remove
+
+    # Build list of dictionaries each dict describes mutation applied corresponding system
+    for i, mutant in enumerate(mutated_systems):
+        mutations.append({'add': [], 'subtract': [], 'replace': []})
+        for atom in carbons[i]:
+            mutations[i]['replace'].append(int(atom))
+        for atom in hydrogens_to_remove[i]:
+            mutations[i]['subtract'].append(int(atom))
+    return mutated_systems, mutations
 
 def get_atom_list(file, resname):
     atoms = []
