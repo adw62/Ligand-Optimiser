@@ -224,58 +224,28 @@ def add_nitrogens(mol, new_element, auto_select, atom_list, modified_atom_type=N
     or use user provided list of carbons
     """
     mutations = []
+    carbons, bonded_h = get_aromatic_carbons(mol, modified_atom_type, auto_select)
     if atom_list is None:
-        carbon_type = 'C.' + auto_select
-        carbons = Mol2.get_atom_by_string(mol, carbon_type)
-        hydrogens = Mol2.get_atom_by_string(mol, 'H')
-        hydrogens_to_remove = []
-        c_tmp = []
-        for atom in carbons:
-            h_neigh = []
-            neighbours = Mol2.get_bonded_neighbours(mol, atom)
-            for neighbour in neighbours:
-                if neighbour in hydrogens:
-                    h_neigh.append(neighbour)
-            if len(h_neigh) == 1:
-                #need to index from 0 to interface with openmm
-                hydrogens_to_remove.append([int(x)-1 for x in h_neigh])
-                c_tmp.append([atom])
-        carbons = c_tmp
+        carbons = [[x] for x in carbons]
+        # need to index from 0 to interface with openmm
+        hydrogens_to_remove = [[int(x) - 1] for x in bonded_h]
     else:
-        carbons = Mol2.get_atom_by_string(mol, 'C.', wild_card=True)
-        hydrogens = Mol2.get_atom_by_string(mol, 'H')
         hydrogens_to_remove = []
-        #Find any atoms which may have already been fluorinated
-        if modified_atom_type is not None:
-            modified_atoms = Mol2.get_atom_by_string(mol, modified_atom_type)
-        else:
-            modified_atoms = []
-
-        #check atom list contains only carbon
         for pair in atom_list:
             tmp = [x for x in pair if x not in carbons]
             if len(tmp) > 0:
-                raise ValueError('Atoms {} are not recognised as carbons and therefore can not be pyridinated'.format(tmp))
+                raise ValueError('Atoms {} are not recognised as aromatic carbons and therefore can not be pyridinated'.format(tmp))
         carbons = atom_list
-
-        #check if carbons in atom list have one neighbour
         for pair in carbons:
             h_tmp = []
             for atom in pair:
-                h_neigh = []
                 neighbours = Mol2.get_bonded_neighbours(mol, atom)
                 for neighbour in neighbours:
-                    if neighbour in hydrogens:
-                        h_neigh.append(neighbour)
-                    #catches any atoms which may have previously been hydrogens but have already been flourinated
-                    if neighbour in modified_atoms:
-                        h_neigh.append(neighbour)
-                if len(h_neigh) != 1:
-                    raise ValueError('Atom {} does not have only one neighbouring hydrogen therefore can not be pyridinated'.format(atom))
-                else:
-                    # need to index from 0 to interface with openmm
-                    h_tmp.extend(int(x) - 1 for x in h_neigh)
+                    if neighbour in bonded_h:
+                        h_tmp.append(neighbour)
             h_tmp.sort(reverse=True)
+            # need to index from 0 to interface with openmm
+            h_tmp = [int(x) - 1 for x in h_tmp]
             hydrogens_to_remove.append(h_tmp)
 
     #Mutate carbons to nitrogen and remove hydrogens
@@ -284,7 +254,7 @@ def add_nitrogens(mol, new_element, auto_select, atom_list, modified_atom_type=N
         for atom in hydrogens_to_remove[i]:
             mutant.remove_atom(atom)
 
-    # Build list of dictionaries each dict describes mutation applied corresponding system
+    # Build list of dictionaries, each dict describes mutation applied corresponding system
     for i, mutant in enumerate(mutated_systems):
         mutations.append({'add': [], 'subtract': [], 'replace': []})
         for atom in carbons[i]:
@@ -292,6 +262,37 @@ def add_nitrogens(mol, new_element, auto_select, atom_list, modified_atom_type=N
         for atom in hydrogens_to_remove[i]:
             mutations[i]['subtract'].append(int(atom))
     return mutated_systems, mutations
+
+
+def get_aromatic_carbons(mol, modified_atom_type, carbon_type=None):
+    if carbon_type is not None:
+        carbon_type = 'C.' + carbon_type
+        carbons = Mol2.get_atom_by_string(mol, carbon_type)
+    else:
+        carbons = Mol2.get_atom_by_string(mol, 'C.', wild_card=True)
+
+    if modified_atom_type is not None:
+        modified_atoms = Mol2.get_atom_by_string(mol, modified_atom_type)
+    else:
+        modified_atoms = []
+
+    hydrogens = Mol2.get_atom_by_string(mol, 'H')
+    bonded_h = []
+    c_tmp = []
+    for atom in carbons:
+        h_neigh = []
+        neighbours = Mol2.get_bonded_neighbours(mol, atom)
+        for neighbour in neighbours:
+            if neighbour in hydrogens:
+                h_neigh.append(neighbour)
+            if neighbour in modified_atoms:
+                h_neigh.append(neighbour)
+        if len(h_neigh) == 1:
+            bonded_h.extend(h_neigh)
+            c_tmp.append(atom)
+    carbons = c_tmp
+    return carbons, bonded_h
+
 
 def get_atom_list(file, resname):
     atoms = []
