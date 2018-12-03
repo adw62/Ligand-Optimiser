@@ -88,7 +88,7 @@ def main(argv=None):
 
     if args['--job_type']:
         job_type = args['--job_type'][0]
-        allowed_jobs = ['F', 'Cl', 'N', 'NxF', 'NxCl']
+        allowed_jobs = ['F', 'Cl', 'N', 'NxF', 'NxCl', 'OH']
         if job_type not in allowed_jobs:
             raise ValueError('Allowed elements {}'.format(allowed_jobs))
     else:

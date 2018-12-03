@@ -7,6 +7,7 @@ import os
 import time
 import itertools
 import mdtraj as md
+import numpy as np
 
 class Scanning(object):
     def __init__(self, output_folder, mol_file, ligand_name, net_charge, complex_name,
@@ -118,7 +119,7 @@ class Scanning(object):
                 atom_names.append(mol2_ligand_atoms[atom_index])
 
             print('ddG for molecule{}.mol2 with'
-                  ' {} substituted for {}'.format(str(i), atom_names, job_type[0]))
+                  ' {} substituted for {}'.format(str(i), atom_names, job_type))
             binding_free_energy = energy - solvent_free_energy[i]
             print(binding_free_energy)
 
@@ -129,6 +130,11 @@ class Scanning(object):
         """
         Takes a job_type with an auto selection or atom_lists and turns this into the correct mutated_systems
         and a list of mutations to keep track of the mutation applied to each system.
+
+        if single mutation:
+            add fluorine, pyridine or hydroxyl
+        else double mutation:
+            add fluorine and pyridine
         """
         job_type = job_type.split('x')
         c_atoms = atom_selection(c_atom_list)
@@ -139,11 +145,19 @@ class Scanning(object):
                 if h_atoms is not None:
                     raise ValueError('hydrogen atom list provided but pyridine scanning job requested')
                 mutated_systems, mutations = add_nitrogens(self.mol, job_type, auto_select, c_atoms)
-            else:
+            elif job_type == ['F'] or job_type == ['Cl']:
                 job_type = job_type[0]
                 if c_atoms is not None:
                     raise ValueError('carbon atom list provided but fluorine scanning job requested')
                 mutated_systems, mutations = add_fluorines(self.mol, job_type, auto_select, h_atoms)
+            elif job_type == ['OH']:
+                job_type = 'O'
+                if c_atoms is not None:
+                    raise ValueError('carbon atom list provided but hydroxyl scanning job requested')
+                mutated_systems, mutations = add_hydroxyl(self.mol, job_type, auto_select, h_atoms)
+            else:
+                raise ValueError('No recognised job type provided')
+
         else:
             if h_atom_list is None or c_atoms is None:
                 raise ValueError('Mixed substitution requested must provided carbon and hydrogen atom lists')
@@ -186,6 +200,60 @@ def atom_selection(atom_list):
     atom_list = tmp
     return atom_list
 
+def get_coordinate_system(mutant, neighbours, h_atom):
+    """
+    get a origin and axis based on atom loacation
+    """
+    axis = []
+    positions = []
+    positions.append(Mol2.get_atom_position(mutant, int(h_atom)))
+    neighbours = [x for x in neighbours if int(x) is not int(h_atom)]
+    if len(neighbours) != 2:
+        raise ValueError('cant hydroxyl')
+    for atom in neighbours:
+        positions.append(Mol2.get_atom_position(mutant, int(atom)))
+    axis.append(positions[0])                   #r1
+    axis.append(positions[1] - positions[0])    #r12
+    axis.append(positions[2] - positions[0])    #r13
+    axis.append(np.cross(axis[1], axis[2]))     #rcross
+    return axis
+
+
+def add_hydroxyl(mol, new_element, auto_select, atom_list):
+    """
+
+    """
+    mutations = []
+    if atom_list is None:
+        ValueError('No auto for hydroxyl')
+    else:
+        hydrogens = Mol2.get_atom_by_string(mol, 'H')
+        for pair in atom_list:
+            tmp = [x for x in pair if x not in hydrogens]
+            if len(tmp) > 0:
+                raise ValueError('Atoms {} are not recognised as hydrogens and therefore can not be hydroxylated'.format(tmp))
+        bonded_h = atom_list
+    mutated_systems = Mol2.mutate(mol, bonded_h, new_element)
+
+    for pair, mutant in zip(bonded_h, mutated_systems):
+        for atom in pair:
+            h_neigh = Mol2.get_bonded_neighbours(mutant, atom)
+            c_neigh = Mol2.get_bonded_neighbours(mutant, h_neigh[0])
+            axis = get_coordinate_system(mutant, c_neigh, atom)
+            weights = [[-0.2, -0.2, -0.2], [-0.2, -0.2, -0.2], [0.2, 0.2, 0.2]] #defines the position of hydrogen relative to ring
+            xyz = weights[0]*axis[1] + weights[1]*axis[2] + weights[2]*axis[3]
+            position = [axis[0][0]+xyz[0], axis[0][1]+xyz[1], axis[0][2]+xyz[2]]
+            mutant.add_atom(int(atom), 'H', position)
+
+    #Atom indexes should be 0 indexed to interface with openmm
+    #Build list of dictionaries each dict describes mutation applied corresponding system
+    #TODO
+    for i, mutant in enumerate(mutated_systems):
+        mutations.append({'add': [], 'subtract': [], 'replace': []})
+        for atom in bonded_h[i]:
+            mutations[i]['add'].append([int(atom), c_neigh, weights])
+    return mutated_systems, mutations
+
 
 def add_fluorines(mol, new_element, auto_select, atom_list):
     mutations = []
@@ -224,7 +292,7 @@ def add_nitrogens(mol, new_element, auto_select, atom_list, modified_atom_type=N
     or use user provided list of carbons
     """
     mutations = []
-    carbons, bonded_h = get_aromatic_carbons(mol, modified_atom_type, auto_select)
+    carbons, bonded_h = get_single_neighbour_carbons(mol, modified_atom_type, auto_select)
     if atom_list is None:
         carbons = [[x] for x in carbons]
         # need to index from 0 to interface with openmm
@@ -234,25 +302,28 @@ def add_nitrogens(mol, new_element, auto_select, atom_list, modified_atom_type=N
         for pair in atom_list:
             tmp = [x for x in pair if x not in carbons]
             if len(tmp) > 0:
-                raise ValueError('Atoms {} are not recognised as aromatic carbons and therefore can not be pyridinated'.format(tmp))
+                raise ValueError('Atoms {} are not recognised as carbons with'
+                                 ' one hydrogen neighbour and therefore can not be pyridinated'.format(tmp))
         carbons = atom_list
         for pair in carbons:
             h_tmp = []
             for atom in pair:
                 neighbours = Mol2.get_bonded_neighbours(mol, atom)
                 for neighbour in neighbours:
+                    #This bonded_h includes atom which have been pyridinated.
                     if neighbour in bonded_h:
                         h_tmp.append(neighbour)
             h_tmp.sort(reverse=True)
-            # need to index from 0 to interface with openmm
+            # need to index from 0 to interface with openmm.
             h_tmp = [int(x) - 1 for x in h_tmp]
             hydrogens_to_remove.append(h_tmp)
 
-    #Mutate carbons to nitrogen and remove hydrogens
+    #Mutate carbons to nitrogen and remove hydrogens.
     mutated_systems = Mol2.mutate(mol, carbons, new_element)
     for i, mutant in enumerate(mutated_systems):
         for atom in hydrogens_to_remove[i]:
-            mutant.remove_atom(atom)
+            #mol2 indexed from 1 so +1
+            mutant.remove_atom(atom+1)
 
     # Build list of dictionaries, each dict describes mutation applied corresponding system
     for i, mutant in enumerate(mutated_systems):
@@ -264,7 +335,7 @@ def add_nitrogens(mol, new_element, auto_select, atom_list, modified_atom_type=N
     return mutated_systems, mutations
 
 
-def get_aromatic_carbons(mol, modified_atom_type, carbon_type=None):
+def get_single_neighbour_carbons(mol, modified_atom_type, carbon_type=None):
     if carbon_type is not None:
         carbon_type = 'C.' + carbon_type
         carbons = Mol2.get_atom_by_string(mol, carbon_type)

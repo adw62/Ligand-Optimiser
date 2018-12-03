@@ -5,6 +5,7 @@ import logging
 import openmoltools as moltool
 import simtk.openmm as mm
 import copy
+import numpy as np
 from simtk import unit
 
 class Mol2(object):
@@ -90,47 +91,54 @@ class Mol2(object):
                 neighbours.append((line[1]))
         return neighbours
 
-    def reindex_data(self, num_atoms, num_bonds, atom, bond):
+    def get_atom_position(self, atom):
+        #mol2 file indexed from 1, data indexed from 0 therefor -1
+        line = self.data['ATOM'][atom-1]
+        positions = np.array([float(line[2]), float(line[3]), float(line[4])])
+        return positions
+
+    def reindex_data(self, num_atoms, num_bonds, atom, bond, remove_atom=False):
         new_molecule_data = []
         for line in self.data['MOLECULE']:
             try:
                 if int(line.split()[0]) == num_atoms:
-                    line = line.replace(str(num_atoms), str(num_atoms-1))
-                    line = line.replace(str(num_bonds), str(num_bonds-1))
+                    if remove_atom:
+                        line = line.replace(str(num_atoms), str(num_atoms-1))
+                        line = line.replace(str(num_bonds), str(num_bonds-1))
+                    else:
+                        line = line.replace(str(num_atoms), str(num_atoms+1))
+                        line = line.replace(str(num_bonds), str(num_bonds+1))
             except:
                 pass
             new_molecule_data.append(line)
 
-        for i, line in enumerate(self.data['ATOM']):
-            if i >= (int(atom)-1):
-                line[0] = i+1
+        if remove_atom:
+            for i, line in enumerate(self.data['ATOM']):
+                if i >= (int(atom)-1):
+                    line[0] = i+1
 
-        for i, line in enumerate(self.data['BOND']):
-            if i >= (int(bond)):
-                line[0] = i+1
-            if int(line[1]) >= int(atom):
-                line[1] = str(int(line[1])-1)
-            if int(line[2]) >= int(atom):
-                line[2] = str(int(line[2])-1)
+            for i, line in enumerate(self.data['BOND']):
+                if i >= (int(bond)):
+                    line[0] = i+1
+                if int(line[1]) >= int(atom):
+                    line[1] = str(int(line[1])-1)
+                if int(line[2]) >= int(atom):
+                    line[2] = str(int(line[2])-1)
 
         Mol2.update_data(self, new_molecule_data, self.data['ATOM'],
                          self.data['BOND'], self.data['OTHER'])
 
     def remove_atom(self, atom):
-        #need to index from 1 to interface with mol2 file
-        atom += 1
         new_atom_data = []
-        num_atoms = 0
+        num_atoms = len(self.data['ATOM'])
         for line in self.data['ATOM']:
-            num_atoms += 1
             if int(line[0]) is not int(atom):
                 new_atom_data.append(line)
 
         new_bond_data = []
-        num_bonds = 0
+        num_bonds = len(self.data['BOND'])
         bond = []
         for i, line in enumerate(self.data['BOND']):
-            num_bonds += 1
             if int(line[1]) is int(atom):
                 bond.append(i)
             elif int(line[2]) is int(atom):
@@ -143,7 +151,30 @@ class Mol2(object):
 
         Mol2.update_data(self, molecule=self.data['MOLECULE'], atoms=new_atom_data,
                          bonds=new_bond_data, other=self.data['OTHER'])
-        Mol2.reindex_data(self, num_atoms, num_bonds, atom, bond[0])
+        Mol2.reindex_data(self, num_atoms, num_bonds, atom, bond[0], remove_atom=True)
+
+    def add_atom(self, atom, element, position):
+        num_atoms = len(self.data['ATOM'])
+        num_bonds = len(self.data['BOND'])
+
+        line = copy.deepcopy(self.data['ATOM'][-1])
+        line[0] = num_atoms + 1
+        line[1] = element
+        line[2] = position[0]
+        line[3] = position[1]
+        line[4] = position[2]
+        line[5] = element
+        self.data['ATOM'].append(line)
+
+        line = copy.deepcopy(self.data['BOND'][-1])
+        line[0] = num_bonds + 1
+        line[1] = atom
+        line[2] = num_atoms + 1
+        self.data['BOND'].append(line)
+
+        Mol2.update_data(self, molecule=self.data['MOLECULE'], atoms=self.data['ATOM'],
+                         bonds=self.data['BOND'], other=self.data['OTHER'])
+        Mol2.reindex_data(self, num_atoms, num_bonds, None, None)
 
     def mutate_atoms(self, atoms, new_element):
         data = copy.deepcopy(self.data['ATOM'])
