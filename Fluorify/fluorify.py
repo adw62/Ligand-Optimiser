@@ -8,65 +8,103 @@ import time
 import itertools
 import mdtraj as md
 import numpy as np
+import shutil
 
-class Scanning(object):
-    def __init__(self, output_folder, mol_file, ligand_name, net_charge, complex_name,
-                 solvent_name, job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only):
-        """A class for preparation and running scanning analysis
+class Fluorify(object):
+    def __init__(self, output_folder, mol_name, ligand_name, net_charge, complex_name,
+                 solvent_name, job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, opt):
 
-        mol_file: name of input ligand file
-        ligand_name: resname for input ligand
-        net_charge: charge on ligand
-        complex_name: name of complex phase directory inside of input directory. Default, complex
-        solvent_name: name of solvent phase directory inside of output directory.  Default solvent
-        job_type: name of scanning requested i.e. F_ar replaces hydrogen on aromatic 'ar' carbons with fluorine 'F'
-        atom_list: list of atoms to replace overrides selection from jobtype
-        output_folder: name for output directory. Default, mol_file + job_type
-        """
-
-        self.net_charge = net_charge
         self.output_folder = output_folder
-        #Prepare directories/files and read in ligand from mol2 file
-        mol_file = mol_file + '.mol2'
-        input_folder = './input/'
+        self.ligand_name = ligand_name
+        self.net_charge = net_charge
+        self.complex_name = complex_name
+        self.solvent_name = solvent_name
+        self.job_type = job_type
+        self.num_frames = num_frames
+        self.charge_only = charge_only
 
-        complex_sim_dir = input_folder + complex_name + '/'
-        solvent_sim_dir = input_folder + solvent_name + '/'
+        # Prepare directories/files and read in ligand from mol2 file
+        mol_file = mol_name + '.mol2'
+        self.input_folder = './input/'
+
+        self.complex_sim_dir = self.input_folder + complex_name + '/'
+        self.solvent_sim_dir = self.input_folder + solvent_name + '/'
 
         if os.path.isdir(self.output_folder):
             print('Output folder {} already exists.'
-                  ' Will attempt to skip ligand parametrisation, proceed with caution...'.format(self.output_folder))
+              ' Will attempt to skip ligand parametrisation, proceed with caution...'.format(self.output_folder))
         else:
             try:
                 os.makedirs(self.output_folder)
             except:
                 print('Could not create output folder {}'.format(self.output_folder))
-
+        shutil.copy2(self.input_folder+mol_file, self.output_folder)
         self.mol = Mol2()
         try:
-            Mol2.get_data(self.mol, input_folder, mol_file)
+            Mol2.get_data(self.mol, self.input_folder, mol_file)
         except:
-            raise ValueError('Could not load molecule {}'.format(input_folder + mol_file))
+            raise ValueError('Could not load molecule {}'.format(self.input_folder + mol_file))
 
-        #Check ligand atom order is consistent across input topologies.
-        mol2_ligand_atoms = get_atom_list(input_folder+mol_file, ligand_name)
-        complex_ligand_atoms = get_atom_list(complex_sim_dir+complex_name+'.pdb', ligand_name)
-        solvent_ligand_atoms = get_atom_list(solvent_sim_dir+solvent_name+'.pdb', ligand_name)
+        # Check ligand atom order is consistent across input topologies.
+        mol2_ligand_atoms = get_atom_list(self.input_folder + mol_file, ligand_name)
+        complex_ligand_atoms = get_atom_list(self.complex_sim_dir + complex_name + '.pdb', ligand_name)
+        solvent_ligand_atoms = get_atom_list(self.solvent_sim_dir + solvent_name + '.pdb', ligand_name)
         if mol2_ligand_atoms != complex_ligand_atoms:
             raise ValueError('Topology of ligand not matched across input files.'
                              'Charges will not be applied where expected')
         if complex_ligand_atoms != solvent_ligand_atoms:
             raise ValueError('Topology of ligand not matched across input files.'
                              'Charges will not be applied where expected')
+        self.mol2_ligand_atoms = mol2_ligand_atoms
+
+        print('Parametrize wild type ligand...')
+        wt_ligand = MutatedLigand(file_path=self.output_folder, mol_name=mol_name, net_charge=self.net_charge)
+
+        if opt:
+            Fluorify.optimize(self, wt_ligand)
+        else:
+            Fluorify.scanning(self, wt_ligand, auto_select, c_atom_list, h_atom_list)
+
+    def optimize(self, wt_ligand):
+        """optimising ligand charges
+        """
+        wt_parameters = [wt_ligand.get_parameters()]
+        #COMPLEX
+        complex = FSim(ligand_name=self.ligand_name, sim_name=self.complex_name,
+                       input_folder=self.input_folder, charge_only=self.charge_only)
+        com_top = md.load(self.complex_sim_dir+self.complex_name+'.pdb').topology
+        com_dcd = self.complex_sim_dir + self.complex_name + '.dcd'
+        #SOLVENT
+        solvent = FSim(ligand_name=self.ligand_name, sim_name=self.solvent_name,
+                       input_folder=self.input_folder, charge_only=self.charge_only)
+        sol_top = md.load(self.solvent_sim_dir+self.solvent_name+'.pdb').topology
+        sol_dcd = self.solvent_sim_dir + self.solvent_name + '.dcd'
+
+        #loop
+        #calculate gradient of free energy w.r.t charges
+        #update charges
+        perturbations = [1.0, 1.1]
+        for perturbation in perturbations:
+            mutant_parameters = [wt_parameters[0]*perturbation]
+            print('Computing complex potential energies...')
+            complex_free_energy = FSim.treat_phase(complex, wt_parameters, mutant_parameters, com_dcd, com_top, self.num_frames)
+            print('Computing solvent potential energies...')
+            solvent_free_energy = FSim.treat_phase(solvent, wt_parameters, mutant_parameters, sol_dcd, sol_top, self.num_frames)
+            binding_free_energy = complex_free_energy[0] - solvent_free_energy[0]
+            print(binding_free_energy)
+
+    def scanning(self, wt_ligand, auto_select, c_atom_list, h_atom_list):
+        """preparation and running scanning analysis
+        """
 
         #Generate mutant systems with selected pertibations
-        mutated_systems, mutations = Scanning.perturbation(self, job_type, auto_select, h_atom_list, c_atom_list)
+        mutated_systems, mutations = Fluorify.element_perturbation(self, auto_select, c_atom_list, h_atom_list)
 
         """
         Write Mol2 files with substitutions of selected atoms.
         Run antechamber and tleap on mol2 files to get prmtop.
         Create OpenMM systems of ligands from prmtop files.
-        Extract ligand charges from OpenMM systems.
+        Extract ligand parameters from OpenMM systems.
         """
         print('Parametrize mutant ligands...')
         t0 = time.time()
@@ -75,12 +113,14 @@ class Scanning(object):
         for index, sys in enumerate(mutated_systems):
             mol_name = 'molecule'+str(index)
             Mol2.write_mol2(sys, self.output_folder, mol_name)
-            mutated_ligands.append(MutatedLigand(file_path=self.output_folder, mol_name=mol_name, net_charge=net_charge))
+            mutated_ligands.append(MutatedLigand(file_path=self.output_folder,
+                                                 mol_name=mol_name, net_charge=self.net_charge))
 
-        ligand_parameters = []
+        wt_parameters = [wt_ligand.get_parameters()]
+        mutant_parameters = []
         for i, ligand in enumerate(mutated_ligands):
             mute = mutations[i]['subtract']
-            ligand_parameters.append(ligand.get_parameters(mute))
+            mutant_parameters.append(ligand.get_parameters(mute))
 
         t1 = time.time()
         print('Took {} seconds'.format(t1 - t0))
@@ -95,20 +135,22 @@ class Scanning(object):
         t0 = time.time()
 
         #COMPLEX
-        complex = FSim(ligand_name=ligand_name, sim_name=complex_name,
-                       input_folder=input_folder, charge_only=charge_only)
-        com_top = md.load(complex_sim_dir+complex_name+'.pdb').topology
-        com_dcd = complex_sim_dir + complex_name + '.dcd'
+        complex = FSim(ligand_name=self.ligand_name, sim_name=self.complex_name,
+                       input_folder=self.input_folder, charge_only=self.charge_only)
+        com_top = md.load(self.complex_sim_dir+self.complex_name+'.pdb').topology
+        com_dcd = self.complex_sim_dir + self.complex_name + '.dcd'
         #SOLVENT
-        solvent = FSim(ligand_name=ligand_name, sim_name=solvent_name,
-                       input_folder=input_folder, charge_only=charge_only)
-        sol_top = md.load(solvent_sim_dir+solvent_name+'.pdb').topology
-        sol_dcd = solvent_sim_dir + solvent_name + '.dcd'
+        solvent = FSim(ligand_name=self.ligand_name, sim_name=self.solvent_name,
+                       input_folder=self.input_folder, charge_only=self.charge_only)
+        sol_top = md.load(self.solvent_sim_dir+self.solvent_name+'.pdb').topology
+        sol_dcd = self.solvent_sim_dir + self.solvent_name + '.dcd'
 
         print('Computing complex potential energies...')
-        complex_free_energy = FSim.treat_phase(complex, ligand_parameters, com_dcd, com_top, num_frames)
+        complex_free_energy = FSim.treat_phase(complex, wt_parameters,
+                                               mutant_parameters, com_dcd, com_top, self.num_frames)
         print('Computing solvent potential energies...')
-        solvent_free_energy = FSim.treat_phase(solvent, ligand_parameters, sol_dcd, sol_top, num_frames)
+        solvent_free_energy = FSim.treat_phase(solvent, wt_parameters,
+                                               mutant_parameters, sol_dcd, sol_top, self.num_frames)
 
         #RESULT
         for i, energy in enumerate(complex_free_energy):
@@ -116,17 +158,17 @@ class Scanning(object):
             replace = mutations[i]['replace']
             for atom in replace:
                 atom_index = int(atom)-1
-                atom_names.append(mol2_ligand_atoms[atom_index])
+                atom_names.append(self.mol2_ligand_atoms[atom_index])
 
             print('ddG for molecule{}.mol2 with'
-                  ' {} substituted for {}'.format(str(i), atom_names, job_type))
+                  ' {} substituted for {}'.format(str(i), atom_names, self.job_type))
             binding_free_energy = energy - solvent_free_energy[i]
             print(binding_free_energy)
 
         t1 = time.time()
         print('Took {} seconds'.format(t1 - t0))
 
-    def perturbation(self, job_type, auto_select, h_atom_list, c_atom_list):
+    def element_perturbation(self, auto_select, c_atom_list, h_atom_list):
         """
         Takes a job_type with an auto selection or atom_lists and turns this into the correct mutated_systems
         and a list of mutations to keep track of the mutation applied to each system.
@@ -136,7 +178,7 @@ class Scanning(object):
         else double mutation:
             add fluorine and pyridine
         """
-        job_type = job_type.split('x')
+        job_type = self.job_type.split('x')
         c_atoms = atom_selection(c_atom_list)
         h_atoms = atom_selection(h_atom_list)
         if len(job_type) == 1:
@@ -159,15 +201,15 @@ class Scanning(object):
                 raise ValueError('No recognised job type provided')
 
         else:
-            if h_atom_list is None or c_atoms is None:
+            if h_atoms is None or c_atoms is None:
                 raise ValueError('Mixed substitution requested must provided carbon and hydrogen atom lists')
             job_type[0] = 'N.ar'
             mutated_systems = []
             mutations = []
             f_mutated_systems, f_mutations = add_fluorines(self.mol, job_type[1], auto_select, h_atoms)
             for i, mol in enumerate(f_mutated_systems):
-                p_mutated_systems, p_mutations = add_nitrogens(mol, job_type[0], auto_select,
-                                                                                   c_atoms, modified_atom_type=job_type[1])
+                p_mutated_systems, p_mutations = add_nitrogens(mol, job_type[0],
+                                                               auto_select, c_atoms, modified_atom_type=job_type[1])
                 #compound flurination and pyridination
                 for j in range(len(p_mutations)):
                     p_mutations[j]['add'].extend(f_mutations[i]['add'])
@@ -202,7 +244,7 @@ def atom_selection(atom_list):
 
 def get_coordinate_system(mutant, neighbours, h_atom):
     """
-    get a origin and axis based on atom loacation
+    get an origin and axis based on atom loacations
     """
     axis = []
     positions = []

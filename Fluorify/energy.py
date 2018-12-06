@@ -57,30 +57,16 @@ class FSim(object):
             raise ValueError('Did not find ligand in supplied topology by name {}'.format(ligand_name))
         return ligand_atoms
 
-    def treat_phase(self, ligand_parameters, dcd, top, num_frames):
-        wildtype_energy = FSim.get_wildtype_energy(self, dcd, top, num_frames)
-        mutant_energy = FSim.get_mutant_energy(self, ligand_parameters, dcd, top, num_frames)
-        phase_free_energy = get_free_energy(mutant_energy, wildtype_energy)
+    def treat_phase(self, wt_parameters, mutant_parameters, dcd, top, num_frames):
+        wildtype_energy = FSim.get_mutant_energy(self, wt_parameters, dcd, top, num_frames, True)
+        mutant_energy = FSim.get_mutant_energy(self, mutant_parameters, dcd, top, num_frames)
+        phase_free_energy = get_free_energy(mutant_energy, wildtype_energy[0])
         return phase_free_energy
 
     def frames(self, dcd, top, maxframes):
         for i in range(maxframes):
             frame = md.load_dcd(dcd, top=top, stride=None, atom_indices=None, frame=i)
             yield frame
-
-    def get_wildtype_energy(self, dcd, top, num_frames):
-        wildtype_frame_energies = []
-        append = wildtype_frame_energies.append
-        KJ_M = unit.kilojoule_per_mole
-        context = FSim.build_context(self, self.wt_system)
-        #need to catch if traj shorter than requested read
-        for frame in FSim.frames(self, dcd, top, maxframes=num_frames):
-            context.setPositions(frame.xyz[0])
-            context.setPeriodicBoxVectors(frame.unitcell_vectors[0][0],
-                                          frame.unitcell_vectors[0][1], frame.unitcell_vectors[0][2])
-            energy = context.getState(getEnergy=True, groups={self.nonbonded_index}).getPotentialEnergy()
-            append(energy/KJ_M)
-        return wildtype_frame_energies
 
     def apply_parameters(self, force, mutant_parameters, write_charges=False):
         f = open('charges.out', 'w')
@@ -96,11 +82,14 @@ class FSim(object):
                 f.write('{0}    {1}\n'.format(charge/e, mutant_parameters[i][0]/e))
         f.close()
 
-    def get_mutant_energy(self, parameters, dcd, top, num_frames):
+    def get_mutant_energy(self, parameters, dcd, top, num_frames, wt=False):
         mutants_frame_energies = []
         KJ_M = unit.kilojoule_per_mole
         for index, mutant_parameters in enumerate(parameters):
-            print('Computing potential for mutant {0}/{1}'.format(index+1, len(parameters)))
+            if wt:
+                print('Computing potential for wild type ligand')
+            else:
+                print('Computing potential for mutant {0}/{1}'.format(index+1, len(parameters)))
             mutant_energies = []
             append = mutant_energies.append
             mutant_system = copy.deepcopy(self.wt_system)
@@ -116,26 +105,14 @@ class FSim(object):
         return mutants_frame_energies
 
 
-def get_free_energy(mutant_energy, wildtype_energy, write_convergence=False):
+def get_free_energy(mutant_energy, wildtype_energy):
     ans = []
     free_energy = []
-    lig_con = []
     for ligand in mutant_energy:
         tmp = 0.0
-        convergence = []
         for i in range(len(wildtype_energy)):
             tmp += (np.exp(-(ligand[i] - wildtype_energy[i]) / kT))
-            convergence.append(tmp/(float(i)+1.0))
-        lig_con.append(convergence)
         ans.append(tmp / len(wildtype_energy))
-
-    if write_convergence:
-        f = open('convergence.out', 'w')
-        for i, ligand in enumerate(lig_con):
-            f.write('{} ///////////////////////////////////////////////\n'.format(i))
-            for j, frame in enumerate(ligand):
-                f.write('{0},    {1}\n'.format(j, (-kT * np.log(frame) * 0.239)))
-        f.close()
 
     for ligand in ans:
         free_energy.append(-kT * np.log(ligand) * 0.239) # Unit: kcal/mol

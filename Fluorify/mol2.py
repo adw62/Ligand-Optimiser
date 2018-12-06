@@ -221,7 +221,8 @@ class MutatedLigand(object):
         parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
         self.system = parameters_file.createSystem()
 
-    def get_parameters(self, atoms_to_mute):
+    def get_parameters(self, atoms_to_mute=[]):
+        #atoms to mute does not work if there are multiple sequential atoms to mute
         system = self.system
         ligand_parameters = []
         for force in system.getForces():
@@ -232,16 +233,18 @@ class MutatedLigand(object):
                 charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
                 ligand_parameters.append([0.0*charge, 1.0*unit.angstrom, epsilon*0.0])
                 ligand_parameters.append([charge, sigma, epsilon])
+                if index + 1 in atoms_to_mute:
+                    raise ValueError('This condition needs to be considered')
             else:
                 charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
                 ligand_parameters.append([charge, sigma, epsilon])
-        return ligand_parameters
+        return np.asarray(ligand_parameters)
 
 def run_ante(file_path, file_name, name, net_charge):
     if os.path.exists(file_path+name+'.prmtop'):
         print('{0} found skipping antechamber and tleap for {1}'.format(file_path+name+'.prmtop', name))
     else:
-        moltool.amber.run_antechamber(molecule_name=file_path+name,
-                                      input_filename=file_path+file_name, net_charge=net_charge)
-        moltool.amber.run_tleap(molecule_name=file_path+name,
-                                gaff_mol2_filename=file_path+name+'.gaff.mol2', frcmod_filename=file_path+name+'.frcmod')
+        moltool.amber.run_antechamber(molecule_name=file_path+name, input_filename=file_path+file_name,
+                                      net_charge=net_charge, gaff_version = 'gaff2')
+        moltool.amber.run_tleap(molecule_name=file_path+name, gaff_mol2_filename=file_path+name+'.gaff.mol2',
+                                frcmod_filename=file_path+name+'.frcmod', leaprc='leaprc.gaff2')
