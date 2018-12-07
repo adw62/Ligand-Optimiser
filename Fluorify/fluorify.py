@@ -9,26 +9,26 @@ import itertools
 import mdtraj as md
 import numpy as np
 import shutil
+from simtk import unit
+
+#CONSTANTS
+e = unit.elementary_charges
 
 class Fluorify(object):
     def __init__(self, output_folder, mol_name, ligand_name, net_charge, complex_name,
                  solvent_name, job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, opt):
 
         self.output_folder = output_folder
-        self.ligand_name = ligand_name
         self.net_charge = net_charge
-        self.complex_name = complex_name
-        self.solvent_name = solvent_name
         self.job_type = job_type
         self.num_frames = num_frames
-        self.charge_only = charge_only
 
         # Prepare directories/files and read in ligand from mol2 file
         mol_file = mol_name + '.mol2'
-        self.input_folder = './input/'
+        input_folder = './input/'
 
-        self.complex_sim_dir = self.input_folder + complex_name + '/'
-        self.solvent_sim_dir = self.input_folder + solvent_name + '/'
+        complex_sim_dir = input_folder + complex_name + '/'
+        solvent_sim_dir = input_folder + solvent_name + '/'
 
         if os.path.isdir(self.output_folder):
             print('Output folder {} already exists.'
@@ -38,17 +38,18 @@ class Fluorify(object):
                 os.makedirs(self.output_folder)
             except:
                 print('Could not create output folder {}'.format(self.output_folder))
-        shutil.copy2(self.input_folder+mol_file, self.output_folder)
+        shutil.copy2(input_folder+mol_file, self.output_folder)
         self.mol = Mol2()
         try:
-            Mol2.get_data(self.mol, self.input_folder, mol_file)
+            Mol2.get_data(self.mol, input_folder, mol_file)
         except:
             raise ValueError('Could not load molecule {}'.format(self.input_folder + mol_file))
 
         # Check ligand atom order is consistent across input topologies.
-        mol2_ligand_atoms = get_atom_list(self.input_folder + mol_file, ligand_name)
-        complex_ligand_atoms = get_atom_list(self.complex_sim_dir + complex_name + '.pdb', ligand_name)
-        solvent_ligand_atoms = get_atom_list(self.solvent_sim_dir + solvent_name + '.pdb', ligand_name)
+        mol2_ligand_atoms = get_atom_list(input_folder + mol_file, ligand_name)
+        self.wt_system_size = len(mol2_ligand_atoms)
+        complex_ligand_atoms = get_atom_list(complex_sim_dir + complex_name + '.pdb', ligand_name)
+        solvent_ligand_atoms = get_atom_list(solvent_sim_dir + solvent_name + '.pdb', ligand_name)
         if mol2_ligand_atoms != complex_ligand_atoms:
             raise ValueError('Topology of ligand not matched across input files.'
                              'Charges will not be applied where expected')
@@ -60,6 +61,20 @@ class Fluorify(object):
         print('Parametrize wild type ligand...')
         wt_ligand = MutatedLigand(file_path=self.output_folder, mol_name=mol_name, net_charge=self.net_charge)
 
+        print('Loading complex and solvent systems...')
+        #COMPLEX
+        self.complex_sys = []
+        self.complex_sys.append(FSim(ligand_name=ligand_name, sim_name=complex_name,
+                                input_folder=input_folder, charge_only=charge_only))
+        self.complex_sys.append(complex_sim_dir + complex_name + '.dcd')
+        self.complex_sys.append(md.load(complex_sim_dir+complex_name+'.pdb').topology)
+        #SOLVENT
+        self.solvent_sys = []
+        self.solvent_sys.append(FSim(ligand_name=ligand_name, sim_name=solvent_name,
+                                input_folder=input_folder, charge_only=charge_only))
+        self.solvent_sys.append(solvent_sim_dir + solvent_name + '.dcd')
+        self.solvent_sys.append(md.load(solvent_sim_dir+solvent_name+'.pdb').topology)
+
         if opt:
             Fluorify.optimize(self, wt_ligand)
         else:
@@ -68,30 +83,39 @@ class Fluorify(object):
     def optimize(self, wt_ligand):
         """optimising ligand charges
         """
-        wt_parameters = [wt_ligand.get_parameters()]
-        #COMPLEX
-        complex = FSim(ligand_name=self.ligand_name, sim_name=self.complex_name,
-                       input_folder=self.input_folder, charge_only=self.charge_only)
-        com_top = md.load(self.complex_sim_dir+self.complex_name+'.pdb').topology
-        com_dcd = self.complex_sim_dir + self.complex_name + '.dcd'
-        #SOLVENT
-        solvent = FSim(ligand_name=self.ligand_name, sim_name=self.solvent_name,
-                       input_folder=self.input_folder, charge_only=self.charge_only)
-        sol_top = md.load(self.solvent_sim_dir+self.solvent_name+'.pdb').topology
-        sol_dcd = self.solvent_sim_dir + self.solvent_name + '.dcd'
+        wt_parameters = [[x[0]/e] for x in wt_ligand.get_parameters()]
+        cur_perturbed_params = wt_parameters
+        gamma = np.zeros_like(wt_parameters)+0.00001  # step size multiplier
+        max_iters = 30  # maximum number of iterations
+        iters = 0  # iteration counter
 
-        #loop
-        #calculate gradient of free energy w.r.t charges
-        #update charges
-        perturbations = [1.0, 1.1]
-        for perturbation in perturbations:
-            mutant_parameters = [wt_parameters[0]*perturbation]
-            print('Computing complex potential energies...')
-            complex_free_energy = FSim.treat_phase(complex, wt_parameters, mutant_parameters, com_dcd, com_top, self.num_frames)
-            print('Computing solvent potential energies...')
-            solvent_free_energy = FSim.treat_phase(solvent, wt_parameters, mutant_parameters, sol_dcd, sol_top, self.num_frames)
-            binding_free_energy = complex_free_energy[0] - solvent_free_energy[0]
+        while iters < max_iters:
+            prev_perturbed_params = cur_perturbed_params
+            fd = Fluorify.finite_difference(self, wt_parameters, prev_perturbed_params)
+            print(fd)
+            cur_perturbed_params -= gamma * fd
+            iters += 1
+
+        print("minimum occurs at\n", cur_perturbed_params)
+
+    def finite_difference(self, wt_parameters, mutant_parameters):
+        h = 0.001
+        fd = Fluorify.energy_function(self, wt_parameters, mutant_parameters, h) - Fluorify.energy_function(self, wt_parameters, mutant_parameters)
+        fd = fd / h
+        return fd
+
+    def energy_function(self, wt_parameters, mutant_parameters, h=0.0):
+        mutant_parameters = [[[x[0]+h] for x in mutant_parameters]]
+        print('Computing complex potential energies...')
+        complex_free_energy = FSim.treat_phase(self.complex_sys[0], wt_parameters, mutant_parameters,
+                                               self.complex_sys[1], self.complex_sys[2], self.num_frames)
+        print('Computing solvent potential energies...')
+        solvent_free_energy = FSim.treat_phase(self.solvent_sys[0], wt_parameters, mutant_parameters,
+                                               self.solvent_sys[1], self.solvent_sys[2], self.num_frames)
+        binding_free_energy = complex_free_energy[0] - solvent_free_energy[0]
+        if h == 0.0:
             print(binding_free_energy)
+        return binding_free_energy
 
     def scanning(self, wt_ligand, auto_select, c_atom_list, h_atom_list):
         """preparation and running scanning analysis
@@ -116,7 +140,7 @@ class Fluorify(object):
             mutated_ligands.append(MutatedLigand(file_path=self.output_folder,
                                                  mol_name=mol_name, net_charge=self.net_charge))
 
-        wt_parameters = [wt_ligand.get_parameters()]
+        wt_parameters = wt_ligand.get_parameters()
         mutant_parameters = []
         for i, ligand in enumerate(mutated_ligands):
             mute = mutations[i]['subtract']
@@ -126,31 +150,19 @@ class Fluorify(object):
         print('Took {} seconds'.format(t1 - t0))
 
         """
-        Build OpenMM simulations for complex and solvent phases.
-        Apply ligand charges to OpenMM simulations.
+        Apply ligand charges to OpenMM complex and solvent systems.
         Calculate potential energy of simulation with mutant charges.
         Calculate free energy change from wild type to mutant.
         """
         print('Calculating free energies...')
         t0 = time.time()
 
-        #COMPLEX
-        complex = FSim(ligand_name=self.ligand_name, sim_name=self.complex_name,
-                       input_folder=self.input_folder, charge_only=self.charge_only)
-        com_top = md.load(self.complex_sim_dir+self.complex_name+'.pdb').topology
-        com_dcd = self.complex_sim_dir + self.complex_name + '.dcd'
-        #SOLVENT
-        solvent = FSim(ligand_name=self.ligand_name, sim_name=self.solvent_name,
-                       input_folder=self.input_folder, charge_only=self.charge_only)
-        sol_top = md.load(self.solvent_sim_dir+self.solvent_name+'.pdb').topology
-        sol_dcd = self.solvent_sim_dir + self.solvent_name + '.dcd'
-
         print('Computing complex potential energies...')
-        complex_free_energy = FSim.treat_phase(complex, wt_parameters,
-                                               mutant_parameters, com_dcd, com_top, self.num_frames)
+        complex_free_energy = FSim.treat_phase(self.complex_sys[0], wt_parameters, mutant_parameters,
+                                               self.complex_sys[1], self.complex_sys[2], self.num_frames)
         print('Computing solvent potential energies...')
-        solvent_free_energy = FSim.treat_phase(solvent, wt_parameters,
-                                               mutant_parameters, sol_dcd, sol_top, self.num_frames)
+        solvent_free_energy = FSim.treat_phase(self.solvent_sys[0], wt_parameters, mutant_parameters,
+                                               self.solvent_sys[1], self.solvent_sys[2], self.num_frames)
 
         #RESULT
         for i, energy in enumerate(complex_free_energy):
