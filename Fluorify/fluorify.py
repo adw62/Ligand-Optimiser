@@ -11,6 +11,8 @@ import numpy as np
 import shutil
 from simtk import unit
 
+from scipy.optimize import minimize
+
 #CONSTANTS
 e = unit.elementary_charges
 
@@ -83,39 +85,10 @@ class Fluorify(object):
     def optimize(self, wt_ligand):
         """optimising ligand charges
         """
-        wt_parameters = [[x[0]/e] for x in wt_ligand.get_parameters()]
-        cur_perturbed_params = wt_parameters
-        gamma = np.zeros_like(wt_parameters)+0.00001  # step size multiplier
-        max_iters = 30  # maximum number of iterations
-        iters = 0  # iteration counter
-
-        while iters < max_iters:
-            prev_perturbed_params = cur_perturbed_params
-            fd = Fluorify.finite_difference(self, wt_parameters, prev_perturbed_params)
-            print(fd)
-            cur_perturbed_params -= gamma * fd
-            iters += 1
-
-        print("minimum occurs at\n", cur_perturbed_params)
-
-    def finite_difference(self, wt_parameters, mutant_parameters):
-        h = 0.001
-        fd = Fluorify.energy_function(self, wt_parameters, mutant_parameters, h) - Fluorify.energy_function(self, wt_parameters, mutant_parameters)
-        fd = fd / h
-        return fd
-
-    def energy_function(self, wt_parameters, mutant_parameters, h=0.0):
-        mutant_parameters = [[[x[0]+h] for x in mutant_parameters]]
-        print('Computing complex potential energies...')
-        complex_free_energy = FSim.treat_phase(self.complex_sys[0], wt_parameters, mutant_parameters,
-                                               self.complex_sys[1], self.complex_sys[2], self.num_frames)
-        print('Computing solvent potential energies...')
-        solvent_free_energy = FSim.treat_phase(self.solvent_sys[0], wt_parameters, mutant_parameters,
-                                               self.solvent_sys[1], self.solvent_sys[2], self.num_frames)
-        binding_free_energy = complex_free_energy[0] - solvent_free_energy[0]
-        if h == 0.0:
-            print(binding_free_energy)
-        return binding_free_energy
+        wt_parameters = [x[0]/e for x in wt_ligand.get_parameters()]
+        cons = {'type': 'eq', 'fun': constraint}
+        sol = minimize(objective, wt_parameters,
+                       args=(wt_parameters, self.complex_sys, self.solvent_sys, self.num_frames), constraints=cons)
 
     def scanning(self, wt_ligand, auto_select, c_atom_list, h_atom_list):
         """preparation and running scanning analysis
@@ -222,7 +195,7 @@ class Fluorify(object):
             for i, mol in enumerate(f_mutated_systems):
                 p_mutated_systems, p_mutations = add_nitrogens(mol, job_type[0],
                                                                auto_select, c_atoms, modified_atom_type=job_type[1])
-                #compound flurination and pyridination
+                #compound fluorination and pyridination
                 for j in range(len(p_mutations)):
                     p_mutations[j]['add'].extend(f_mutations[i]['add'])
                     p_mutations[j]['subtract'].extend(f_mutations[i]['subtract'])
@@ -230,6 +203,28 @@ class Fluorify(object):
                 mutated_systems.extend(p_mutated_systems)
                 mutations.extend(p_mutations)
         return mutated_systems, mutations
+
+
+def objective(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_frames):
+    mutant_parameters = [[[x] for x in mutant_parameters]]
+    wt_parameters = [[x] for x in wt_parameters]
+    print(mutant_parameters)
+    print('Computing complex potential energies...')
+    complex_free_energy = FSim.treat_phase(complex_sys[0], wt_parameters, mutant_parameters,
+                                           complex_sys[1], complex_sys[2], num_frames)
+    print('Computing solvent potential energies...')
+    solvent_free_energy = FSim.treat_phase(solvent_sys[0], wt_parameters, mutant_parameters,
+                                           solvent_sys[1], solvent_sys[2], num_frames)
+    binding_free_energy = complex_free_energy[0] - solvent_free_energy[0]
+    print('Current binding free energy = ', binding_free_energy)
+    return binding_free_energy
+
+
+def constraint(mutant_parameters):
+    sum = 1.0
+    for charge in mutant_parameters:
+        sum = sum - charge
+    return sum
 
 
 def atom_selection(atom_list):
@@ -318,8 +313,7 @@ def add_fluorines(mol, new_element, auto_select, atom_list):
         for atom in carbons:
             carbons_neighbours.extend(Mol2.get_bonded_neighbours(mol, atom))
         hydrogens = Mol2.get_atom_by_string(mol, 'H')
-        bonded_h = [x for x in hydrogens if x in carbons_neighbours]
-        bonded_h = [bonded_h[i:i+1] for i in range(0, len(bonded_h), 1)]
+        bonded_h = [[x] for x in hydrogens if x in carbons_neighbours]
     else:
         hydrogens = Mol2.get_atom_by_string(mol, 'H')
         for pair in atom_list:
