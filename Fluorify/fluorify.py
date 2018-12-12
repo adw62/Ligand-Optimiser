@@ -31,9 +31,13 @@ class Fluorify(object):
         complex_sim_dir = input_folder + complex_name + '/'
         solvent_sim_dir = input_folder + solvent_name + '/'
 
+        #SETUP
+        #build systems if missing
+        #run dynamics if missing
+
         if os.path.isdir(self.output_folder):
-            print('Output folder {} already exists.'
-              ' Will attempt to skip ligand parametrisation, proceed with caution...'.format(self.output_folder))
+            print('Output folder {} already exists. '
+                  'Will attempt to skip ligand parametrisation, proceed with caution...'.format(self.output_folder))
         else:
             try:
                 os.makedirs(self.output_folder)
@@ -195,6 +199,7 @@ class Fluorify(object):
                 mutations.extend(p_mutations)
         return mutated_systems, mutations
 
+
 def atom_selection(atom_list):
 
     if atom_list is None:
@@ -216,6 +221,7 @@ def atom_selection(atom_list):
             tmp.append(x)
     atom_list = tmp
     return atom_list
+
 
 def get_coordinate_system(mutant, neighbours, h_atom):
     """

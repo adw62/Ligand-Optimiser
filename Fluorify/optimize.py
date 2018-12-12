@@ -13,6 +13,7 @@ class Optimize(object):
         self.complex_sys = complex_sys
         self.solvent_sys = solvent_sys
         self.num_frames = num_frames
+        #energies should be from previous step
         self.wt_parameters = [[x[0] / e] for x in wt_ligand.get_parameters()]
         self.wt_energy_complex = FSim.get_mutant_energy(self.complex_sys[0], [self.wt_parameters], self.complex_sys[1],
                                                         self.complex_sys[2], self.num_frames, True)
@@ -28,6 +29,8 @@ class Optimize(object):
         cons = {'type': 'eq', 'fun': constraint}
         sol = minimize(objective, self.wt_parameters, bounds=bnds,
                        args=(self.wt_energy_complex, self.wt_energy_solvent, self.complex_sys, self.solvent_sys, self.num_frames), constraints=cons)
+        #write charges to mol2
+        print(sol)
 
 
 def objective(mutant_parameters, wt_energy_complex, wt_energy_solvent, complex_sys, solvent_sys, num_frames):
