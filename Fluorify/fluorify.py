@@ -2,6 +2,7 @@
 
 from .energy import FSim
 from .mol2 import Mol2, MutatedLigand
+from .optimize import Optimize
 
 import os
 import time
@@ -10,8 +11,6 @@ import mdtraj as md
 import numpy as np
 import shutil
 from simtk import unit
-
-from scipy.optimize import minimize
 
 #CONSTANTS
 e = unit.elementary_charges
@@ -78,17 +77,9 @@ class Fluorify(object):
         self.solvent_sys.append(md.load(solvent_sim_dir+solvent_name+'.pdb').topology)
 
         if opt:
-            Fluorify.optimize(self, wt_ligand)
+            Optimize(wt_ligand, self.complex_sys, self.solvent_sys, self.num_frames)
         else:
             Fluorify.scanning(self, wt_ligand, auto_select, c_atom_list, h_atom_list)
-
-    def optimize(self, wt_ligand):
-        """optimising ligand charges
-        """
-        wt_parameters = [x[0]/e for x in wt_ligand.get_parameters()]
-        cons = {'type': 'eq', 'fun': constraint}
-        sol = minimize(objective, wt_parameters,
-                       args=(wt_parameters, self.complex_sys, self.solvent_sys, self.num_frames), constraints=cons)
 
     def scanning(self, wt_ligand, auto_select, c_atom_list, h_atom_list):
         """preparation and running scanning analysis
@@ -204,29 +195,6 @@ class Fluorify(object):
                 mutations.extend(p_mutations)
         return mutated_systems, mutations
 
-
-def objective(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_frames):
-    mutant_parameters = [[[x] for x in mutant_parameters]]
-    wt_parameters = [[x] for x in wt_parameters]
-    print(mutant_parameters)
-    print('Computing complex potential energies...')
-    complex_free_energy = FSim.treat_phase(complex_sys[0], wt_parameters, mutant_parameters,
-                                           complex_sys[1], complex_sys[2], num_frames)
-    print('Computing solvent potential energies...')
-    solvent_free_energy = FSim.treat_phase(solvent_sys[0], wt_parameters, mutant_parameters,
-                                           solvent_sys[1], solvent_sys[2], num_frames)
-    binding_free_energy = complex_free_energy[0] - solvent_free_energy[0]
-    print('Current binding free energy = ', binding_free_energy)
-    return binding_free_energy
-
-
-def constraint(mutant_parameters):
-    sum = 1.0
-    for charge in mutant_parameters:
-        sum = sum - charge
-    return sum
-
-
 def atom_selection(atom_list):
 
     if atom_list is None:
@@ -291,6 +259,7 @@ def add_hydroxyl(mol, new_element, auto_select, atom_list):
             axis = get_coordinate_system(mutant, c_neigh, atom)
             weights = [[-0.2, -0.2, -0.2], [-0.2, -0.2, -0.2], [0.2, 0.2, 0.2]] #defines the position of hydrogen relative to ring
             xyz = weights[0]*axis[1] + weights[1]*axis[2] + weights[2]*axis[3]
+            #axis[0] is origin
             position = [axis[0][0]+xyz[0], axis[0][1]+xyz[1], axis[0][2]+xyz[2]]
             mutant.add_atom(int(atom), 'H', position)
 

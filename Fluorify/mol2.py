@@ -222,7 +222,7 @@ class MutatedLigand(object):
         self.system = parameters_file.createSystem()
 
     def get_parameters(self, atoms_to_mute=[]):
-        #atoms to mute does not work if there are multiple sequential atoms to mute
+        #atoms to mute does not work if there are more than 2 sequential atoms to mute
         system = self.system
         ligand_parameters = []
         for force in system.getForces():
@@ -232,9 +232,11 @@ class MutatedLigand(object):
             if index in atoms_to_mute:
                 charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
                 ligand_parameters.append([0.0*charge, 1.0*unit.angstrom, epsilon*0.0])
-                ligand_parameters.append([charge, sigma, epsilon])
                 if index + 1 in atoms_to_mute:
-                    raise ValueError('This condition needs to be considered')
+                    ligand_parameters.append([0.0*charge, 1.0*unit.angstrom, epsilon*0.0])
+                    if index + 2 in atoms_to_mute:
+                        raise ValueError('Work in progress: Too many pyridinations per mutant')
+                ligand_parameters.append([charge, sigma, epsilon])
             else:
                 charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
                 ligand_parameters.append([charge, sigma, epsilon])
@@ -245,6 +247,6 @@ def run_ante(file_path, file_name, name, net_charge):
         print('{0} found skipping antechamber and tleap for {1}'.format(file_path+name+'.prmtop', name))
     else:
         moltool.amber.run_antechamber(molecule_name=file_path+name, input_filename=file_path+file_name,
-                                      net_charge=net_charge, gaff_version = 'gaff2')
+                                      net_charge=net_charge, gaff_version='gaff2')
         moltool.amber.run_tleap(molecule_name=file_path+name, gaff_mol2_filename=file_path+name+'.gaff.mol2',
                                 frcmod_filename=file_path+name+'.frcmod', leaprc='leaprc.gaff2')

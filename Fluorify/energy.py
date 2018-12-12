@@ -57,8 +57,9 @@ class FSim(object):
             raise ValueError('Did not find ligand in supplied topology by name {}'.format(ligand_name))
         return ligand_atoms
 
-    def treat_phase(self, wt_parameters, mutant_parameters, dcd, top, num_frames):
-        wildtype_energy = FSim.get_mutant_energy(self, [wt_parameters], dcd, top, num_frames, True)
+    def treat_phase(self, wt_parameters, mutant_parameters, dcd, top, num_frames, wildtype_energy=None):
+        if wildtype_energy is None:
+            wildtype_energy = FSim.get_mutant_energy(self, [wt_parameters], dcd, top, num_frames, True)
         mutant_energy = FSim.get_mutant_energy(self, mutant_parameters, dcd, top, num_frames)
         phase_free_energy = get_free_energy(mutant_energy, wildtype_energy[0])
         return phase_free_energy
