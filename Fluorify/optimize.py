@@ -28,8 +28,8 @@ class Optimize(object):
         """
         if name == 'scipy':
             Optimize.scipy_opt(self)
-        if name == 'gaussian':
-            Optimize.gaussian(self)
+        else:
+            Optimize.grad_opt(self, name)
         #write charges to mol2
         print(sol)
 
@@ -60,8 +60,65 @@ class Optimize(object):
 
         return sol[0]
 
-    def gaussian(self):
-        pass
+
+    def grad_opt(self, opt_type):
+        """
+        different strategries of gradient descent
+
+        """
+        # assert that opt_type is known
+        assert opt_type in ['gradient_descent',
+                            'adagrad',
+                            'momentum']
+
+        # import tensorflow locally here
+        import tensorflow as tf
+
+        # enable eager execution if it is not enabled in the background
+        try:
+            tf.enable_eager_execution()
+        except:
+            pass
+
+        # a small learning rate helps keep the perturbation small
+        learning_rate = 0.1
+
+        # specify the optimizer based on the type
+        if opt_type == 'gradient_descent':
+            optimizer = tf.training.optimizer.GradientDescentOptimizer(learning_rate=learning_rate)
+        elif opt_type == 'adagrad':
+            optimizer = tf.training.optimizer.AdagradOptimizer(learning_rate=learning_rate)
+        elif opt_type == 'momentum':
+            optimizer = tf.trainig.optimizer.MomentumOptimizer(learning_rate=learning_rate)
+
+        # code the weights as a variable
+        wt_parameters = np.array(self.wt_parameters, dtype=np.float32)
+        charge_sum = tf.reduce_sum(wt_parameters)
+        wt_vat = tf.Variable(wt_parameters,
+                            constraint=lambda x : charge_sum * tf.div(x, tf.norm(x)))
+
+        for step in range(self.steps):
+            # optimize
+            opt_op = optimizer.minimize(lambda x: objective(x.numpy(),
+                                        self.wt_energy_complex, self.wt_energy_solvent,
+                                        self.complex_sys, self.solvent_sys, self.num_frames))
+
+            opt_op.run()
+
+            #run new dynamics with updated charges
+            self.complex_sys[0].run_dynamics(self.output_folder, 'complex'+str(step), wt_parameters)
+            self.solvent_sys[0].run_dynamics(self.output_folder, 'solvent'+str(step), wt_parameters)
+            #update path to trajectrory
+            self.complex_sys[1] = self.output_folder+'complex'+str(step)
+            self.solvent_sys[1] = self.output_folder+'solvent'+str(step)
+            #get new wt_mutant energies
+            self.wt_energy_complex = FSim.get_mutant_energy(self.complex_sys[0], [self.wt_parameters],
+                                                            self.complex_sys[1],
+                                                            self.complex_sys[2], self.num_frames, True)
+            self.wt_energy_solvent = FSim.get_mutant_energy(self.solvent_sys[0], [self.wt_parameters],
+                                                            self.solvent_sys[1],
+                                                            self.solvent_sys[2], self.num_frames, True)
+
 
 def objective(mutant_parameters, wt_energy_complex, wt_energy_solvent, complex_sys, solvent_sys, num_frames):
     mutant_parameters = [[[x] for x in mutant_parameters]]
@@ -84,5 +141,3 @@ def constraint(mutant_parameters):
     for charge in mutant_parameters:
         sum_ = sum_ - charge
     return sum_
-
-
