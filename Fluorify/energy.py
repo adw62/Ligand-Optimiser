@@ -27,8 +27,10 @@ class FSim(object):
         #Create system from input files
         sim_dir = input_folder + sim_name + '/'
         self.snapshot = md.load(sim_dir + sim_name + '.pdb')
+        self.pdb_file = mm.app.pdbfile.PDBFile(sim_dir + sim_name + '.pdb')
         parameters_file_path = sim_dir + sim_name + '.prmtop'
         parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
+        self.parameters_file = parameters_file
         system = parameters_file.createSystem(nonbondedMethod=app.PME, nonbondedCutoff=1.0*unit.nanometers,
                                               constraints=app.HBonds, rigidWater=True, ewaldErrorTolerance=0.0005)
 
@@ -50,6 +52,42 @@ class FSim(object):
             platform = mm.Platform.getPlatformByName('Reference')
             context = mm.Context(system, integrator, platform)
         return context
+
+    def run_dynamics(self, context, n_steps):
+        """
+        Given an OpenMM Context object and options, perform molecular dynamics
+        calculations.
+
+        Parameters
+        ----------
+        context : an OpenMM context instance
+        n_steps : the number of iterations for the sim
+
+        Returns
+        -------
+        
+
+        """
+
+        system = context.getSystem()
+        box_vectors = pdb.topology.getPeriodicBoxVectors()
+        system.setDefaultPeriodicBoxVectors(*box_vectors)
+        system.addForce(mm.MonteCarloBarostat(1*u.atmospheres, 300*u.kelvin, 25))
+
+        simulation = app.Simulation(
+                topology = self.parameters_file.topology,
+                system = system,
+                integrator = context.getIntegrator())
+
+        simulation.context.setVelocitiesToTemperature(300*u.kelvin)
+        simulation.context.setPositions(self.pdbfile.positions)
+        simulation.minimizeEnergy()
+        simulation.step(n_steps)
+
+
+
+
+
 
     def get_ligand_atoms(self, ligand_name):
         ligand_atoms = self.snapshot.topology.select('resname {}'.format(ligand_name))
@@ -118,4 +156,3 @@ def get_free_energy(mutant_energy, wildtype_energy):
     for ligand in ans:
         free_energy.append(-kT * np.log(ligand) * 0.239) # Unit: kcal/mol
     return free_energy
-
