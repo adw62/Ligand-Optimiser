@@ -41,17 +41,6 @@ class FSim(object):
         self.wt_system = system
         self.ligand_atoms = FSim.get_ligand_atoms(self, ligand_name)
 
-    def build_context(self, system):
-        integrator = mm.VerletIntegrator(2.0 * unit.femtoseconds)
-        try:
-            platform = mm.Platform.getPlatformByName('CUDA')
-            properties = {'CudaPrecision': 'mixed'}
-            context = mm.Context(system, integrator, platform, properties)
-        except:
-            platform = mm.Platform.getPlatformByName('Reference')
-            context = mm.Context(system, integrator, platform)
-        return context
-
     def run_dynamics(self, output_folder, name, n_steps, mutant_parameters):
         """
         Given an OpenMM Context object and options, perform molecular dynamics
@@ -92,7 +81,7 @@ class FSim(object):
         print('Done!')
 
     def build_context(self, system):
-        integrator = mm.VerletIntegrator(1.0 * unit.femtoseconds)
+        integrator = mm.VerletIntegrator(2.0 * unit.femtoseconds)
         try:
             platform = mm.Platform.getPlatformByName('CUDA')
             properties = {'CudaPrecision': 'mixed'}
