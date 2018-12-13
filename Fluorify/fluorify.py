@@ -31,10 +31,6 @@ class Fluorify(object):
         complex_sim_dir = input_folder + complex_name + '/'
         solvent_sim_dir = input_folder + solvent_name + '/'
 
-        #SETUP
-        #build systems if missing
-        #run dynamics if missing
-
         if os.path.isdir(self.output_folder):
             print('Output folder {} already exists. '
                   'Will attempt to skip ligand parametrisation, proceed with caution...'.format(self.output_folder))
@@ -79,6 +75,10 @@ class Fluorify(object):
                                 input_folder=input_folder, charge_only=charge_only))
         self.solvent_sys.append(solvent_sim_dir + solvent_name + '.dcd')
         self.solvent_sys.append(md.load(solvent_sim_dir+solvent_name+'.pdb').topology)
+        if not os.path.isfile(self.complex_sys[1]):
+            self.complex_sys[0].run_dynamics(complex_sim_dir, complex_name+'.dcd', 1000, None)
+        if not os.path.isfile(self.solvent_sys[1]):
+            self.solvent_sys[0].run_dynamics(solvent_sim_dir, solvent_name+'.dcd', 1000, None)
 
         if opt:
             steps = 10

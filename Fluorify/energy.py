@@ -13,7 +13,6 @@ kB = 0.008314472471220214
 T = 300
 kT = kB * T # Unit: kJ/mol
 
-
 class FSim(object):
     def __init__(self, ligand_name, sim_name, input_folder, charge_only):
         """ A class for creating OpenMM context from input files and calculating free energy
@@ -43,7 +42,7 @@ class FSim(object):
         self.ligand_atoms = FSim.get_ligand_atoms(self, ligand_name)
 
     def build_context(self, system):
-        integrator = mm.VerletIntegrator(1.0 * unit.femtoseconds)
+        integrator = mm.VerletIntegrator(2.0 * unit.femtoseconds)
         try:
             platform = mm.Platform.getPlatformByName('CUDA')
             properties = {'CudaPrecision': 'mixed'}
@@ -53,7 +52,7 @@ class FSim(object):
             context = mm.Context(system, integrator, platform)
         return context
 
-    def run_dynamics(self, context, n_steps, mutant_parameters):
+    def run_dynamics(self, output_folder, name, n_steps, mutant_parameters):
         """
         Given an OpenMM Context object and options, perform molecular dynamics
         calculations.
@@ -69,23 +68,39 @@ class FSim(object):
 
         """
 
-        system = context.getSystem()
-        box_vectors = pdb.topology.getPeriodicBoxVectors()
-        system.setDefaultPeriodicBoxVectors(*box_vectors)
-        system.addForce(mm.MonteCarloBarostat(1*u.atmospheres, 300*u.kelvin, 25))
+        mutant_system = copy.deepcopy(self.wt_system)
+        non_bonded_force = mutant_system.getForce(self.nonbonded_index)
+        if mutant_parameters is not None:
+            self.apply_parameters(non_bonded_force, mutant_parameters)
+        context = FSim.build_context(self, mutant_system)
 
-        non_bonded_force = system.getForce(self.nonbonded_index)
-        self.apply_parameters(non_bonded_force, mutant_parameters)
+        system = context.getSystem()
+        box_vectors = self.pdb_file.topology.getPeriodicBoxVectors()
+        system.setDefaultPeriodicBoxVectors(*box_vectors)
+        system.addForce(mm.MonteCarloBarostat(1*unit.atmospheres, 300*unit.kelvin, 25))
 
         simulation = app.Simulation(
                 topology = self.parameters_file.topology,
                 system = system,
-                integrator = context.getIntegrator())
-
-        simulation.context.setVelocitiesToTemperature(300*u.kelvin)
-        simulation.context.setPositions(self.pdbfile.positions)
+                integrator = mm.VerletIntegrator(2.0 * unit.femtoseconds))
+        simulation.context.setPositions(self.pdb_file.positions)
+        simulation.context.setVelocitiesToTemperature(300*unit.kelvin)
         simulation.minimizeEnergy()
+        simulation.reporters.append(app.DCDReporter(output_folder+name, 10))
+        print('Running Production...')
         simulation.step(n_steps)
+        print('Done!')
+
+    def build_context(self, system):
+        integrator = mm.VerletIntegrator(1.0 * unit.femtoseconds)
+        try:
+            platform = mm.Platform.getPlatformByName('CUDA')
+            properties = {'CudaPrecision': 'mixed'}
+            context = mm.Context(system, integrator, platform, properties)
+        except:
+            platform = mm.Platform.getPlatformByName('Reference')
+            context = mm.Context(system, integrator, platform)
+        return context
 
     def get_ligand_atoms(self, ligand_name):
         ligand_atoms = self.snapshot.topology.select('resname {}'.format(ligand_name))
@@ -154,3 +169,4 @@ def get_free_energy(mutant_energy, wildtype_energy):
     for ligand in ans:
         free_energy.append(-kT * np.log(ligand) * 0.239) # Unit: kcal/mol
     return free_energy
+

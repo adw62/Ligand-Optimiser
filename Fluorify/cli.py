@@ -34,10 +34,10 @@ def run_automatic_pipeline(yaml_file_path, complex_name, solvent_name):
     # Run the automatic pipeline.
     exp_builder.setup_experiments()
     assert len(exp_builder._db.systems) == 1, 'Setting up multiple systems is not currently supported'
-    system_name = next(exp_builder._db.systems)
+    system_name = next(iter(list(exp_builder._db.systems.keys())))
 
     # Copy YANK setup files to match the Fluorify folder structure.
-    for phase_name, user_phase_name in zip([('complex', 'solvent'), (complex_name, solvent_name)]):
+    for phase_name, user_phase_name in zip(['complex', 'solvent'], [complex_name, solvent_name]):
         # Create Fluorify directory structure.
         fluorify_phase_dir = os.path.join('input', user_phase_name)
         os.makedirs(fluorify_phase_dir, exist_ok=True)
@@ -171,3 +171,4 @@ def main(argv=None):
 
     Fluorify(output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name,
          job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, opt)
+
