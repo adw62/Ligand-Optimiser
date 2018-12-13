@@ -43,16 +43,22 @@ class Mol2(object):
                     data[key].append(line)
         self.data = data
 
-    def write_mol2(self, file_path, file_name):
+    def write_mol2(self, file_path, file_name, charges=None):
         mol2 = []
         headers = {'MOLECULE': '@<TRIPOS>MOLECULE\n', 'ATOM': '@<TRIPOS>ATOM\n',
                    'BOND': '@<TRIPOS>BOND\n', 'OTHER': ''}
         for k, v in self.data.items():
             mol2.append(headers[k])
             if k == 'ATOM':
-                for line in v:
-                    line = ('{0:>7} {1:<10} {2:<9} {3:<9} {4:<5} {5:<9} {6:<1} {7:<11} {8}\n'.format(*line))
-                    mol2.append(line)
+                if charges is not None:
+                    for charge, line in zip(charges, v):
+                        line[8] = charge
+                        line = ('{0:>7} {1:<10} {2:<9} {3:<9} {4:<5} {5:<9} {6:<1} {7:<11} {8}\n'.format(*line))
+                        mol2.append(line)
+                else:
+                    for line in v:
+                        line = ('{0:>7} {1:<10} {2:<9} {3:<9} {4:<5} {5:<9} {6:<1} {7:<11} {8}\n'.format(*line))
+                        mol2.append(line)
             elif k == 'BOND':
                 for line in v:
                     line = ('{0:>6} {1:>4} {2:>4} {3:>1}\n'.format(*line))
