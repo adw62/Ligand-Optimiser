@@ -53,7 +53,7 @@ class FSim(object):
             context = mm.Context(system, integrator, platform)
         return context
 
-    def run_dynamics(self, context, n_steps):
+    def run_dynamics(self, context, n_steps, mutant_parameters):
         """
         Given an OpenMM Context object and options, perform molecular dynamics
         calculations.
@@ -65,7 +65,7 @@ class FSim(object):
 
         Returns
         -------
-        
+
 
         """
 
@@ -73,6 +73,9 @@ class FSim(object):
         box_vectors = pdb.topology.getPeriodicBoxVectors()
         system.setDefaultPeriodicBoxVectors(*box_vectors)
         system.addForce(mm.MonteCarloBarostat(1*u.atmospheres, 300*u.kelvin, 25))
+
+        non_bonded_force = system.getForce(self.nonbonded_index)
+        self.apply_parameters(non_bonded_force, mutant_parameters)
 
         simulation = app.Simulation(
                 topology = self.parameters_file.topology,
@@ -83,11 +86,6 @@ class FSim(object):
         simulation.context.setPositions(self.pdbfile.positions)
         simulation.minimizeEnergy()
         simulation.step(n_steps)
-
-
-
-
-
 
     def get_ligand_atoms(self, ligand_name):
         ligand_atoms = self.snapshot.topology.select('resname {}'.format(ligand_name))
