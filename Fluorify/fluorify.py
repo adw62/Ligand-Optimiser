@@ -81,7 +81,9 @@ class Fluorify(object):
         self.solvent_sys.append(md.load(solvent_sim_dir+solvent_name+'.pdb').topology)
 
         if opt:
-            Optimize(wt_ligand, self.complex_sys, self.solvent_sys, self.num_frames)
+            steps = 10
+            name = 'scipy'
+            Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, name, steps)
         else:
             Fluorify.scanning(self, wt_ligand, auto_select, c_atom_list, h_atom_list)
 
