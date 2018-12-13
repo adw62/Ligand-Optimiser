@@ -44,8 +44,19 @@ class Optimize(object):
                            args=(self.wt_energy_complex, self.wt_energy_solvent, self.complex_sys, self.solvent_sys, self.num_frames), constraints=cons)
             print(sol)
             charges = sol[0]
+            #run new dynamics with updated charges
             self.complex_sys[0].run_dynamics(self.output_folder, 'complex'+str(step), charges)
             self.solvent_sys[0].run_dynamics(self.output_folder, 'solvent'+str(step), charges)
+            #update path to trajectrory
+            self.complex_sys[1] = self.output_folder+'complex'+str(step)
+            self.solvent_sys[1] = self.output_folder+'solvent'+str(step)
+            #get new wt_mutant energies
+            self.wt_energy_complex = FSim.get_mutant_energy(self.complex_sys[0], [self.wt_parameters],
+                                                            self.complex_sys[1],
+                                                            self.complex_sys[2], self.num_frames, True)
+            self.wt_energy_solvent = FSim.get_mutant_energy(self.solvent_sys[0], [self.wt_parameters],
+                                                            self.solvent_sys[1],
+                                                            self.solvent_sys[2], self.num_frames, True)
 
         return sol[0]
 
