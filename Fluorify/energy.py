@@ -6,6 +6,7 @@ from simtk import unit
 import mdtraj as md
 import numpy as np
 import copy
+from sys import stdout
 
 #CONSTANTS
 e = unit.elementary_charges
@@ -28,9 +29,8 @@ class FSim(object):
         self.snapshot = md.load(sim_dir + sim_name + '.pdb')
         self.pdb_file = mm.app.pdbfile.PDBFile(sim_dir + sim_name + '.pdb')
         parameters_file_path = sim_dir + sim_name + '.prmtop'
-        parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
-        self.parameters_file = parameters_file
-        system = parameters_file.createSystem(nonbondedMethod=app.PME, nonbondedCutoff=1.0*unit.nanometers,
+        self.parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
+        system = self.parameters_file.createSystem(nonbondedMethod=app.PME, nonbondedCutoff=1.0*unit.nanometers,
                                               constraints=app.HBonds, rigidWater=True, ewaldErrorTolerance=0.0005)
 
         for force_index, force in enumerate(system.getForces()):
@@ -56,6 +56,9 @@ class FSim(object):
 
 
         """
+        temperature = 300 * unit.kelvin
+        friction = 0.3 / unit.picosecond
+        timestep = 2.0 * unit.femtosecond
 
         mutant_system = copy.deepcopy(self.wt_system)
         non_bonded_force = mutant_system.getForce(self.nonbonded_index)
@@ -71,17 +74,24 @@ class FSim(object):
         simulation = app.Simulation(
                 topology = self.parameters_file.topology,
                 system = system,
-                integrator = mm.VerletIntegrator(2.0 * unit.femtoseconds))
+                integrator = mm.LangevinIntegrator(temperature, friction, timestep))
         simulation.context.setPositions(self.pdb_file.positions)
-        simulation.context.setVelocitiesToTemperature(300*unit.kelvin)
         simulation.minimizeEnergy()
-        simulation.reporters.append(app.DCDReporter(output_folder+name, 10))
+        simulation.context.setVelocitiesToTemperature(300 * unit.kelvin)
+        print('Equilibrating...')
+        equi = 1000
+        simulation.step(equi)
+        simulation.reporters.append(app.DCDReporter(output_folder+name, 2500))
+        simulation.reporters.append(app.StateDataReporter(stdout, 2500, step=True,
+        potentialEnergy=True, temperature=True, progress=True, remainingTime=True,
+        speed=True, totalSteps=equi+n_steps, separator='\t'))
+
         print('Running Production...')
         simulation.step(n_steps)
         print('Done!')
 
     def build_context(self, system):
-        integrator = mm.VerletIntegrator(2.0 * unit.femtoseconds)
+        integrator = mm.VerletIntegrator(2.0*unit.femtoseconds)
         try:
             platform = mm.Platform.getPlatformByName('CUDA')
             properties = {'CudaPrecision': 'mixed'}
@@ -151,9 +161,9 @@ def get_free_energy(mutant_energy, wildtype_energy):
     free_energy = []
     for ligand in mutant_energy:
         tmp = 0.0
-        for i in range(len(wildtype_energy)):
+        for i in range(len(ligand)):
             tmp += (np.exp(-(ligand[i] - wildtype_energy[i]) / kT))
-        ans.append(tmp / len(wildtype_energy))
+        ans.append(tmp / len(mutant_energy))
 
     for ligand in ans:
         free_energy.append(-kT * np.log(ligand) * 0.239) # Unit: kcal/mol

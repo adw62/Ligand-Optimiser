@@ -3,6 +3,7 @@
 from .energy import FSim
 from simtk import unit
 from scipy.optimize import minimize
+import copy
 
 #CONSTANTS
 e = unit.elementary_charges
@@ -15,51 +16,38 @@ class Optimize(object):
         self.num_frames = num_frames
         self.steps = steps
         self.output_folder = output_folder
-        #energies should be from previous step
         self.wt_parameters = [[x[0] / e] for x in wt_ligand.get_parameters()]
-
-        self.wt_energy_complex = FSim.get_mutant_energy(self.complex_sys[0], [self.wt_parameters], self.complex_sys[1],
-                                                        self.complex_sys[2], self.num_frames, True)
-        self.wt_energy_solvent = FSim.get_mutant_energy(self.solvent_sys[0], [self.wt_parameters], self.solvent_sys[1],
-                                                        self.solvent_sys[2], self.num_frames, True)
         Optimize.optimize(self, name)
 
     def optimize(self, name):
         """optimising ligand charges
         """
         if name == 'scipy':
-            Optimize.scipy_opt(self)
+            opt_charges, ddg = Optimize.scipy_opt(self)
+            print(opt_charges)
         else:
             Optimize.grad_opt(self, name)
 
 
     def scipy_opt(self):
-        max_change = 0.1
-        bnds = [sorted((x[0] - max_change * x[0], x[0] + max_change * x[0])) for x in self.wt_parameters]
         cons = {'type': 'eq', 'fun': constraint}
         charges = self.wt_parameters
+        ddg = 0.0
         for step in range(self.steps):
-            print(step)
-            sol = minimize(objective, charges, bounds=bnds, options={'maxiter':1},
-                           args=(self.wt_energy_complex, self.wt_energy_solvent, self.complex_sys, self.solvent_sys, self.num_frames), constraints=cons)
-            print(sol)
+            max_change = 0.2
+            bnds = [sorted((x[0] - max_change * x[0], x[0] + max_change * x[0])) for x in charges]
+            sol = minimize(objective, charges, bounds=bnds, options={'maxiter': 1}, jac=gradient,
+                           args=(charges, self.complex_sys, self.solvent_sys, self.num_frames), constraints=cons)
             charges = [[x] for x in sol.x]
-            print(charges)
+            ddg += sol.fun
+            print("Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step+1, self.steps))
             #run new dynamics with updated charges
-            self.complex_sys[0].run_dynamics(self.output_folder, 'complex'+str(step), 1000, charges)
-            self.solvent_sys[0].run_dynamics(self.output_folder, 'solvent'+str(step), 1000, charges)
+            self.complex_sys[0].run_dynamics(self.output_folder, 'complex'+str(step), self.num_frames*2500, charges)
+            self.solvent_sys[0].run_dynamics(self.output_folder, 'solvent'+str(step), self.num_frames*2500, charges)
             #update path to trajectrory
             self.complex_sys[1] = self.output_folder+'complex'+str(step)
             self.solvent_sys[1] = self.output_folder+'solvent'+str(step)
-            #get new wt_mutant energies
-            self.wt_energy_complex = FSim.get_mutant_energy(self.complex_sys[0], [self.wt_parameters],
-                                                            self.complex_sys[1],
-                                                            self.complex_sys[2], self.num_frames, True)
-            self.wt_energy_solvent = FSim.get_mutant_energy(self.solvent_sys[0], [self.wt_parameters],
-                                                            self.solvent_sys[1],
-                                                            self.solvent_sys[2], self.num_frames, True)
-
-        return sol[0]
+        return sol.x, ddg
 
     def grad_opt(self, opt_type):
         """
@@ -110,23 +98,43 @@ class Optimize(object):
                                                             self.solvent_sys[1],
                                                             self.solvent_sys[2], self.num_frames, True)
 
-def objective(mutant_parameters, wt_energy_complex, wt_energy_solvent, complex_sys, solvent_sys, num_frames):
+
+def objective(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_frames):
     mutant_parameters = [[[x] for x in mutant_parameters]]
-    wt_parameters = None
-    print('Computing complex potential energies...')
+    print('Computing Objective...')
     complex_free_energy = FSim.treat_phase(complex_sys[0], wt_parameters, mutant_parameters,
-                                           complex_sys[1], complex_sys[2], num_frames, wt_energy_complex)
-    print('Computing solvent potential energies...')
+                                           complex_sys[1], complex_sys[2], num_frames)
     solvent_free_energy = FSim.treat_phase(solvent_sys[0], wt_parameters, mutant_parameters,
-                                           solvent_sys[1], solvent_sys[2], num_frames, wt_energy_solvent)
+                                           solvent_sys[1], solvent_sys[2], num_frames)
     binding_free_energy = complex_free_energy[0] - solvent_free_energy[0]
-    print('Current binding free energy = ', binding_free_energy)
+    return binding_free_energy
+
+
+def gradient(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_frames):
+    num_frames = int(num_frames/10)
+    binding_free_energy = []
+    og_mutant_parameters = mutant_parameters
+    mutant_parameters = []
+    for i in range(len(og_mutant_parameters)):
+        mutant = copy.deepcopy(og_mutant_parameters)
+        mutant[i] = mutant[i] + 1.5e-08
+        mutant = [[x] for x in mutant]
+        mutant_parameters.append(mutant)
+
+    print('Computing Jacobian...')
+    complex_free_energy = FSim.treat_phase(complex_sys[0], wt_parameters, mutant_parameters,
+                                           complex_sys[1], complex_sys[2], num_frames)
+    solvent_free_energy = FSim.treat_phase(solvent_sys[0], wt_parameters, mutant_parameters,
+                                           solvent_sys[1], solvent_sys[2], num_frames)
+    for sol, com in zip(solvent_free_energy, complex_free_energy):
+        free_energy = com - sol
+        binding_free_energy.append(free_energy)
     return binding_free_energy
 
 
 def constraint(mutant_parameters):
     # sum = net_charge
-    sum_ = 1.0
+    sum_ = 0.0
     for charge in mutant_parameters:
         sum_ = sum_ - charge
     return sum_

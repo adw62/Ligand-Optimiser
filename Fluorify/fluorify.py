@@ -76,9 +76,9 @@ class Fluorify(object):
         self.solvent_sys.append(solvent_sim_dir + solvent_name + '.dcd')
         self.solvent_sys.append(md.load(solvent_sim_dir+solvent_name+'.pdb').topology)
         if not os.path.isfile(self.complex_sys[1]):
-            self.complex_sys[0].run_dynamics(complex_sim_dir, complex_name+'.dcd', 1000, None)
+            self.complex_sys[0].run_dynamics(complex_sim_dir, complex_name+'.dcd', self.num_frames*2500, None)
         if not os.path.isfile(self.solvent_sys[1]):
-            self.solvent_sys[0].run_dynamics(solvent_sim_dir, solvent_name+'.dcd', 1000, None)
+            self.solvent_sys[0].run_dynamics(solvent_sim_dir, solvent_name+'.dcd', self.num_frames*2500, None)
 
         if opt:
             steps = 10
