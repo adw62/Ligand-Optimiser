@@ -1,5 +1,8 @@
 #!/usr/local/bin/env python
 
+import os
+import shutil
+
 from .fluorify import Fluorify
 from docopt import docopt
 
@@ -11,9 +14,37 @@ usage = """
 FLUORIFY
 Usage:
   Fluorify [--output_folder=STRING] [--mol_name=STRING] [--ligand_name=STRING] [--complex_name=STRING] 
-           [--solvent_name=STRING] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT] [--net_charge=INT] 
-           [--auto_select=STRING] [--charge_only=BOOL] [--optimize=BOOL] [--job_type=STRING]...
+           [--solvent_name=STRING] [--yaml_path=STRING] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT]
+           [--net_charge=INT] [--auto_select=STRING] [--charge_only=BOOL] [--optimize=BOOL] [--job_type=STRING]...
 """
+
+
+def run_automatic_pipeline(yaml_file_path, complex_name, solvent_name):
+    """Run YANK's automatic pipeline."""
+    from yank.experiment import ExperimentBuilder
+    exp_builder = ExperimentBuilder(yaml_file_path)
+
+    # Modify the output directory of the setup to be consistent
+    # with the hardcoded paths in Fluorify and FSim. The searched
+    # path is 'input/complex_name/complex_name.pdb' so we also
+    # need to modify the name of the system.
+    exp_builder.output_dir = '.'
+    exp_builder.setup_dir = 'input'
+
+    # Run the automatic pipeline.
+    exp_builder.setup_experiments()
+    assert len(exp_builder._db.systems) == 1, 'Setting up multiple systems is not currently supported'
+    system_name = next(iter(list(exp_builder._db.systems.keys())))
+
+    # Copy YANK setup files to match the Fluorify folder structure.
+    for phase_name, user_phase_name in zip(['complex', 'solvent'], [complex_name, solvent_name]):
+        # Create Fluorify directory structure.
+        fluorify_phase_dir = os.path.join('input', user_phase_name)
+        os.makedirs(fluorify_phase_dir, exist_ok=True)
+        for extension in ['.prmtop', '.pdb']:
+            yank_file_path = os.path.join(exp_builder.setup_dir, 'systems', system_name, phase_name + extension)
+            fluorify_file_path = os.path.join(fluorify_phase_dir, user_phase_name + extension)
+            shutil.copyfile(yank_file_path, fluorify_file_path)
 
 
 def main(argv=None):
@@ -133,6 +164,10 @@ def main(argv=None):
     else:
         output_folder = './' + mol_name + '_' + job_type + '/'
         print(msg.format('output folder', output_folder))
+
+    # Run the setup pipeline.
+    if args['--yaml_path']:
+        run_automatic_pipeline(args['--yaml_path'], complex_name, solvent_name)
 
     Fluorify(output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name,
          job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, opt)

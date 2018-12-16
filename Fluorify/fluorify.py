@@ -32,8 +32,8 @@ class Fluorify(object):
         solvent_sim_dir = input_folder + solvent_name + '/'
 
         if os.path.isdir(self.output_folder):
-            print('Output folder {} already exists.'
-              ' Will attempt to skip ligand parametrisation, proceed with caution...'.format(self.output_folder))
+            print('Output folder {} already exists. '
+                  'Will attempt to skip ligand parametrisation, proceed with caution...'.format(self.output_folder))
         else:
             try:
                 os.makedirs(self.output_folder)
@@ -75,9 +75,15 @@ class Fluorify(object):
                                 input_folder=input_folder, charge_only=charge_only))
         self.solvent_sys.append(solvent_sim_dir + solvent_name + '.dcd')
         self.solvent_sys.append(md.load(solvent_sim_dir+solvent_name+'.pdb').topology)
+        if not os.path.isfile(self.complex_sys[1]):
+            self.complex_sys[0].run_dynamics(complex_sim_dir, complex_name+'.dcd', self.num_frames*2500, None)
+        if not os.path.isfile(self.solvent_sys[1]):
+            self.solvent_sys[0].run_dynamics(solvent_sim_dir, solvent_name+'.dcd', self.num_frames*2500, None)
 
         if opt:
-            Optimize(wt_ligand, self.complex_sys, self.solvent_sys, self.num_frames)
+            steps = 10
+            name = 'scipy'
+            Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, name, steps)
         else:
             Fluorify.scanning(self, wt_ligand, auto_select, c_atom_list, h_atom_list)
 
@@ -195,6 +201,7 @@ class Fluorify(object):
                 mutations.extend(p_mutations)
         return mutated_systems, mutations
 
+
 def atom_selection(atom_list):
 
     if atom_list is None:
@@ -216,6 +223,7 @@ def atom_selection(atom_list):
             tmp.append(x)
     atom_list = tmp
     return atom_list
+
 
 def get_coordinate_system(mutant, neighbours, h_atom):
     """
