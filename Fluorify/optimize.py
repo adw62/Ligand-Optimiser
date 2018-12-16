@@ -16,7 +16,9 @@ class Optimize(object):
         self.num_frames = num_frames
         self.steps = steps
         self.output_folder = output_folder
-        self.wt_parameters = [[x[0] / e] for x in wt_ligand.get_parameters()]
+        wt_parameters = [x[0]/e for x in wt_ligand.get_parameters()]
+        self.net_charge = sum(wt_parameters)
+        self.wt_parameters = [[x] for x in wt_parameters]
         Optimize.optimize(self, name)
 
     def optimize(self, name):
@@ -30,23 +32,27 @@ class Optimize(object):
 
 
     def scipy_opt(self):
-        cons = {'type': 'eq', 'fun': constraint}
+        cons = {'type': 'eq', 'fun': constraint, 'args': [self.net_charge]}
         charges = self.wt_parameters
+        prev_charges = self.wt_parameters
         ddg = 0.0
         for step in range(self.steps):
-            max_change = 0.2
-            bnds = [sorted((x[0] - max_change * x[0], x[0] + max_change * x[0])) for x in charges]
+            max_change = 0.5
+            bnds = [sorted((x[0] - max_change * x[0], x[0] + max_change * x[0])) for x in prev_charges]
             sol = minimize(objective, charges, bounds=bnds, options={'maxiter': 1}, jac=gradient,
-                           args=(charges, self.complex_sys, self.solvent_sys, self.num_frames), constraints=cons)
+                           args=(prev_charges, self.complex_sys, self.solvent_sys, self.num_frames), constraints=cons)
+            prev_charges = charges
             charges = [[x] for x in sol.x]
+            print(sol)
             ddg += sol.fun
             print("Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step+1, self.steps))
-            #run new dynamics with updated charges
-            self.complex_sys[0].run_dynamics(self.output_folder, 'complex'+str(step), self.num_frames*2500, charges)
-            self.solvent_sys[0].run_dynamics(self.output_folder, 'solvent'+str(step), self.num_frames*2500, charges)
-            #update path to trajectrory
-            self.complex_sys[1] = self.output_folder+'complex'+str(step)
-            self.solvent_sys[1] = self.output_folder+'solvent'+str(step)
+            if step != 0:
+                #run new dynamics with updated charges
+                self.complex_sys[0].run_dynamics(self.output_folder, 'complex'+str(step), self.num_frames*2500, prev_charges)
+                self.solvent_sys[0].run_dynamics(self.output_folder, 'solvent'+str(step), self.num_frames*2500, prev_charges)
+                #update path to trajectrory
+                self.complex_sys[1] = self.output_folder+'complex'+str(step)
+                self.solvent_sys[1] = self.output_folder+'solvent'+str(step)
         return sol.x, ddg
 
     def grad_opt(self, opt_type):
@@ -117,7 +123,7 @@ def gradient(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_fra
     mutant_parameters = []
     for i in range(len(og_mutant_parameters)):
         mutant = copy.deepcopy(og_mutant_parameters)
-        mutant[i] = mutant[i] + 1.5e-08
+        mutant[i] = mutant[i] + 1.5e-04
         mutant = [[x] for x in mutant]
         mutant_parameters.append(mutant)
 
@@ -132,9 +138,8 @@ def gradient(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_fra
     return binding_free_energy
 
 
-def constraint(mutant_parameters):
-    # sum = net_charge
-    sum_ = 0.0
+def constraint(mutant_parameters, net_charge):
+    sum_ = net_charge
     for charge in mutant_parameters:
         sum_ = sum_ - charge
     return sum_
