@@ -48,11 +48,10 @@ class Optimize(object):
             print("Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step+1, self.steps))
             if step != 0:
                 #run new dynamics with updated charges
-                self.complex_sys[0].run_dynamics(self.output_folder, 'complex'+str(step), self.num_frames*2500, prev_charges)
-                self.solvent_sys[0].run_dynamics(self.output_folder, 'solvent'+str(step), self.num_frames*2500, prev_charges)
-                #update path to trajectrory
-                self.complex_sys[1] = self.output_folder+'complex'+str(step)
-                self.solvent_sys[1] = self.output_folder+'solvent'+str(step)
+                self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex_step'+str(step),
+                                                                                self.num_frames*2500, prev_charges)
+                self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent_step'+str(step),
+                                                                                self.num_frames*2500, prev_charges)
         return sol.x, ddg
 
     def grad_opt(self, opt_type):

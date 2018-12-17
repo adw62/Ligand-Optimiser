@@ -15,7 +15,7 @@ FLUORIFY
 Usage:
   Fluorify [--output_folder=STRING] [--mol_name=STRING] [--ligand_name=STRING] [--complex_name=STRING] 
            [--solvent_name=STRING] [--yaml_path=STRING] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT]
-           [--net_charge=INT] [--auto_select=STRING] [--charge_only=BOOL] [--optimize=BOOL] [--job_type=STRING]...
+           [--net_charge=INT] [--auto_select=STRING] [--charge_only=BOOL] [--optimize=BOOL] [--num_gpu=INT] [--job_type=STRING]...
 """
 
 
@@ -169,6 +169,11 @@ def main(argv=None):
     if args['--yaml_path']:
         run_automatic_pipeline(args['--yaml_path'], complex_name, solvent_name)
 
+    if args['--num_gpu']:
+        num_gpu = int(args['--num_gpu'])
+    else:
+        num_gpu = 1
+
     Fluorify(output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name,
-         job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, opt)
+         job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, opt, num_gpu)
 

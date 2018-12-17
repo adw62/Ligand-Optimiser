@@ -16,8 +16,8 @@ from simtk import unit
 e = unit.elementary_charges
 
 class Fluorify(object):
-    def __init__(self, output_folder, mol_name, ligand_name, net_charge, complex_name,
-                 solvent_name, job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, opt):
+    def __init__(self, output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name,
+                 job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, opt, num_gpu):
 
         self.output_folder = output_folder
         self.net_charge = net_charge
@@ -66,19 +66,21 @@ class Fluorify(object):
         #COMPLEX
         self.complex_sys = []
         self.complex_sys.append(FSim(ligand_name=ligand_name, sim_name=complex_name,
-                                input_folder=input_folder, charge_only=charge_only))
+                                input_folder=input_folder, charge_only=charge_only, num_gpu=num_gpu))
         self.complex_sys.append(complex_sim_dir + complex_name + '.dcd')
         self.complex_sys.append(md.load(complex_sim_dir+complex_name+'.pdb').topology)
         #SOLVENT
         self.solvent_sys = []
         self.solvent_sys.append(FSim(ligand_name=ligand_name, sim_name=solvent_name,
-                                input_folder=input_folder, charge_only=charge_only))
+                                input_folder=input_folder, charge_only=charge_only, num_gpu=num_gpu))
         self.solvent_sys.append(solvent_sim_dir + solvent_name + '.dcd')
         self.solvent_sys.append(md.load(solvent_sim_dir+solvent_name+'.pdb').topology)
         if not os.path.isfile(self.complex_sys[1]):
-            self.complex_sys[0].run_dynamics(complex_sim_dir, complex_name+'.dcd', self.num_frames*2500, None)
+            self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(complex_sim_dir, complex_name,
+                                                                            self.num_frames*2500, None)
         if not os.path.isfile(self.solvent_sys[1]):
-            self.solvent_sys[0].run_dynamics(solvent_sim_dir, solvent_name+'.dcd', self.num_frames*2500, None)
+            self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(solvent_sim_dir, solvent_name,
+                                                                            self.num_frames*2500, None)
 
         if opt:
             steps = 10
