@@ -67,18 +67,24 @@ class Fluorify(object):
         self.complex_sys = []
         self.complex_sys.append(FSim(ligand_name=ligand_name, sim_name=complex_name,
                                 input_folder=input_folder, charge_only=charge_only, num_gpu=num_gpu))
-        self.complex_sys.append(complex_sim_dir + complex_name + '.dcd')
-        self.complex_sys.append(md.load(complex_sim_dir+complex_name+'.pdb').topology)
+        self.complex_sys.append([complex_sim_dir + complex_name + '.dcd'])
+        if num_gpu ==1:
+            self.complex_sys.append(md.load(complex_sim_dir+complex_name+'.pdb').topology)
+        else:
+            self.complex_sys.append(complex_sim_dir + complex_name + '.pdb')
         #SOLVENT
         self.solvent_sys = []
         self.solvent_sys.append(FSim(ligand_name=ligand_name, sim_name=solvent_name,
                                 input_folder=input_folder, charge_only=charge_only, num_gpu=num_gpu))
-        self.solvent_sys.append(solvent_sim_dir + solvent_name + '.dcd')
-        self.solvent_sys.append(md.load(solvent_sim_dir+solvent_name+'.pdb').topology)
-        if not os.path.isfile(self.complex_sys[1]):
+        self.solvent_sys.append([solvent_sim_dir + solvent_name + '.dcd'])
+        if num_gpu == 1:
+            self.solvent_sys.append(md.load(solvent_sim_dir+solvent_name+'.pdb').topology)
+        else:
+            self.solvent_sys.append(solvent_sim_dir + solvent_name + '.pdb')
+        if not os.path.isfile(self.complex_sys[1][0]):
             self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(complex_sim_dir, complex_name,
                                                                             self.num_frames*2500, None)
-        if not os.path.isfile(self.solvent_sys[1]):
+        if not os.path.isfile(self.solvent_sys[1][0]):
             self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(solvent_sim_dir, solvent_name,
                                                                             self.num_frames*2500, None)
 

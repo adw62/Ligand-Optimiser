@@ -51,7 +51,7 @@ class FSim(object):
         if mutant_parameters is not None:
             non_bonded_force = mutant_system.getForce(self.nonbonded_index)
             self.apply_parameters(non_bonded_force, mutant_parameters)
-            context = FSim.build_context(self, mutant_system)
+            context = build_context(mutant_system, device='0')#This device entry ignored
             system = context.getSystem()
         else:
             system = mutant_system
@@ -66,18 +66,6 @@ class FSim(object):
         pool.map(run, dcd_names)
         return dcd_names
 
-    def build_context(self, system):
-        integrator = mm.VerletIntegrator(2.0*unit.femtoseconds)
-        try:
-            platform = mm.Platform.getPlatformByName('CUDA')
-            properties = {'CudaPrecision': 'mixed'}
-            context = mm.Context(system, integrator, platform, properties)
-        except:
-            print('Not using CUDA')
-            platform = mm.Platform.getPlatformByName('Reference')
-            context = mm.Context(system, integrator, platform)
-        return context
-
     def get_ligand_atoms(self, ligand_name):
         ligand_atoms = self.snapshot.topology.select('resname {}'.format(ligand_name))
         if len(ligand_atoms) == 0:
@@ -91,12 +79,26 @@ class FSim(object):
         phase_free_energy = get_free_energy(mutant_energy, wildtype_energy[0])
         return phase_free_energy
 
+    """
     def frames(self, dcd, top, maxframes):
         maxframes = ceil(maxframes/len(dcd))
         for name in dcd:
             for i in range(maxframes):
                 frame = md.load_dcd(name, top=top, stride=None, atom_indices=None, frame=i)
                 yield frame
+                
+    def build_context(self, system):
+        integrator = mm.VerletIntegrator(2.0*unit.femtoseconds)
+        try:
+            platform = mm.Platform.getPlatformByName('CUDA')
+            properties = {'CudaPrecision': 'mixed'}
+            context = mm.Context(system, integrator, platform, properties)
+        except:
+            print('Not using CUDA')
+            platform = mm.Platform.getPlatformByName('Reference')
+            context = mm.Context(system, integrator, platform)
+        return context
+    """
 
     def apply_parameters(self, force, mutant_parameters, write_charges=False):
         f = open('charges.out', 'w')
@@ -113,6 +115,22 @@ class FSim(object):
         f.close()
 
     def get_mutant_energy(self, parameters, dcd, top, num_frames, wt=False):
+        if self.num_gpu == 1:
+            mutants_frame_energies = FSim.serial_mutant_energy(self, parameters, dcd, top, num_frames, wt)
+            return mutants_frame_energies
+        mutant_systems = []
+        for i, mutant_parameters in enumerate(parameters):
+            mutant_system = copy.deepcopy(self.wt_system)
+            FSim.apply_parameters(self, mutant_system.getForce(self.nonbonded_index), mutant_parameters)
+            mutant_systems.append([mutant_system, '0'])#add colour
+            print(str(i % self.num_gpu))
+        pool = Pool(processes=self.num_gpu)
+        mutant_eng = partial(parallel_mutant_energy, dcd=dcd, top=top,
+                             num_frames=num_frames, nonbonded_index=self.nonbonded_index)
+        mutants_frame_energies = pool.map(mutant_eng, mutant_systems)
+        return mutants_frame_energies
+
+    def serial_mutant_energy(self, parameters, dcd, top, num_frames, wt=False):
         mutants_frame_energies = []
         KJ_M = unit.kilojoule_per_mole
         for index, mutant_parameters in enumerate(parameters):
@@ -125,8 +143,8 @@ class FSim(object):
             mutant_system = copy.deepcopy(self.wt_system)
             FSim.apply_parameters(self, mutant_system.getForce(self.nonbonded_index), mutant_parameters)
             #mutant_systems.append(mutant_system), could pass systems to gpu then build context
-            context = FSim.build_context(self, mutant_system)
-            for frame in FSim.frames(self, dcd, top, maxframes=num_frames):
+            context = build_context(mutant_system, device='0')
+            for frame in frames(dcd, top, maxframes=num_frames):
                 context.setPositions(frame.xyz[0])
                 context.setPeriodicBoxVectors(frame.unitcell_vectors[0][0],
                                               frame.unitcell_vectors[0][1], frame.unitcell_vectors[0][2])
@@ -134,6 +152,41 @@ class FSim(object):
                 append(energy / KJ_M)
             mutants_frame_energies.append(mutant_energies)
         return mutants_frame_energies
+
+
+def build_context(system, device):
+    integrator = mm.VerletIntegrator(2.0*unit.femtoseconds)
+    platform = mm.Platform.getPlatformByName('CUDA')
+    properties = {'CudaPrecision': 'mixed', 'CudaDeviceIndex': device}
+    context = mm.Context(system, integrator, platform, properties)
+    return context
+
+
+def frames(dcd, top, maxframes):
+    maxframes = ceil(maxframes/len(dcd))
+    for name in dcd:
+        for i in range(maxframes):
+            frame = md.load_dcd(name, top=top, stride=None, atom_indices=None, frame=i)
+            yield frame
+
+
+def parallel_mutant_energy(mutant_system, dcd, top, num_frames, nonbonded_index):
+    print('Loading Topology')
+    top = md.load(top).topology
+    device = mutant_system[1]
+    mutant_system = mutant_system[0]
+    KJ_M = unit.kilojoule_per_mole
+    mutant_energies = []
+    append = mutant_energies.append
+    context = build_context(mutant_system, device)
+    for frame in frames(dcd, top, maxframes=num_frames):
+        context.setPositions(frame.xyz[0])
+        context.setPeriodicBoxVectors(frame.unitcell_vectors[0][0],
+                                      frame.unitcell_vectors[0][1], frame.unitcell_vectors[0][2])
+        energy = context.getState(getEnergy=True, groups={nonbonded_index}).getPotentialEnergy()
+        append(energy / KJ_M)
+    return mutant_energies
+
 
 def run_dynamics(dcd_name, system, pdb, n_steps):
     """
@@ -158,7 +211,7 @@ def run_dynamics(dcd_name, system, pdb, n_steps):
 
     platform = mm.Platform.getPlatformByName('CUDA')
     device = dcd_name[-1]
-    properties = {'CudaPrecision': 'mixed', 'CudaDeviceIndex': device} #dcd_name
+    properties = {'CudaPrecision': 'mixed', 'CudaDeviceIndex': '0'} #dcd_name
     simulation = app.Simulation(pdb.topology, system, integrator, platform, properties)
     simulation.context.setPositions(pdb.positions)
 
