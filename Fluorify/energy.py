@@ -122,8 +122,7 @@ class FSim(object):
         for i, mutant_parameters in enumerate(parameters):
             mutant_system = copy.deepcopy(self.wt_system)
             FSim.apply_parameters(self, mutant_system.getForce(self.nonbonded_index), mutant_parameters)
-            mutant_systems.append([mutant_system, '0'])#add colour
-            print(str(i % self.num_gpu))
+            mutant_systems.append([mutant_system, str(i % self.num_gpu)])#add colour
         pool = Pool(processes=self.num_gpu)
         mutant_eng = partial(parallel_mutant_energy, dcd=dcd, top=top,
                              num_frames=num_frames, nonbonded_index=self.nonbonded_index)
@@ -211,7 +210,7 @@ def run_dynamics(dcd_name, system, pdb, n_steps):
 
     platform = mm.Platform.getPlatformByName('CUDA')
     device = dcd_name[-1]
-    properties = {'CudaPrecision': 'mixed', 'CudaDeviceIndex': '0'} #dcd_name
+    properties = {'CudaPrecision': 'mixed', 'CudaDeviceIndex': device} #dcd_name
     simulation = app.Simulation(pdb.topology, system, integrator, platform, properties)
     simulation.context.setPositions(pdb.positions)
 
@@ -219,7 +218,7 @@ def run_dynamics(dcd_name, system, pdb, n_steps):
     simulation.minimizeEnergy()
     simulation.context.setVelocitiesToTemperature(300 * unit.kelvin)
     print('Equilibrating...')
-    equi = 100  # 250000
+    equi = 250000
     simulation.step(equi)
 
     simulation.reporters.append(app.DCDReporter(dcd_name, 2500))

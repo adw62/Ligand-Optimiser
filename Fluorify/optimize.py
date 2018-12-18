@@ -116,7 +116,7 @@ def objective(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_fr
 
 
 def gradient(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_frames):
-    num_frames = int(num_frames/10)
+    num_frames = int(num_frames/2)
     binding_free_energy = []
     og_mutant_parameters = mutant_parameters
     mutant_parameters = []
