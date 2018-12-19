@@ -4,6 +4,9 @@ from .energy import FSim
 from simtk import unit
 from scipy.optimize import minimize
 import copy
+import logging
+
+logger = logging.getLogger(__name__)
 
 #CONSTANTS
 e = unit.elementary_charges
@@ -26,7 +29,7 @@ class Optimize(object):
         """
         if name == 'scipy':
             opt_charges, ddg = Optimize.scipy_opt(self)
-            print(opt_charges)
+            logger.debug(opt_charges)
         else:
             Optimize.grad_opt(self, name)
 
@@ -43,9 +46,9 @@ class Optimize(object):
                            args=(prev_charges, self.complex_sys, self.solvent_sys, self.num_frames), constraints=cons)
             prev_charges = charges
             charges = [[x] for x in sol.x]
-            print(sol)
+            logger.debug(sol)
             ddg += sol.fun
-            print("Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step+1, self.steps))
+            logger.debug("Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step+1, self.steps))
             if step != 0:
                 #run new dynamics with updated charges
                 self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex_step'+str(step),
@@ -106,7 +109,7 @@ class Optimize(object):
 
 def objective(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_frames):
     mutant_parameters = [[[x] for x in mutant_parameters]]
-    print('Computing Objective...')
+    logger.debug('Computing Objective...')
     complex_free_energy = FSim.treat_phase(complex_sys[0], wt_parameters, mutant_parameters,
                                            complex_sys[1], complex_sys[2], num_frames)
     solvent_free_energy = FSim.treat_phase(solvent_sys[0], wt_parameters, mutant_parameters,
@@ -126,7 +129,7 @@ def gradient(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_fra
         mutant = [[x] for x in mutant]
         mutant_parameters.append(mutant)
 
-    print('Computing Jacobian...')
+    logger.debug('Computing Jacobian...')
     complex_free_energy = FSim.treat_phase(complex_sys[0], wt_parameters, mutant_parameters,
                                            complex_sys[1], complex_sys[2], num_frames)
     solvent_free_energy = FSim.treat_phase(solvent_sys[0], wt_parameters, mutant_parameters,

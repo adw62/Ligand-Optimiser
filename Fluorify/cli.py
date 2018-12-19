@@ -2,9 +2,12 @@
 
 import os
 import shutil
+import logging
 
 from .fluorify import Fluorify
 from docopt import docopt
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================================
 # COMMAND-LINE INTERFACE
@@ -56,59 +59,59 @@ def main(argv=None):
         mol_name = args['--mol_name']
     else:
         mol_name = 'ligand'
-        print(msg.format('mol file', mol_name + '.mol2'))
+        logger.debug(msg.format('mol file', mol_name + '.mol2'))
 
     if args['--ligand_name']:
         ligand_name = args['--ligand_name']
     else:
         ligand_name = 'MOL'
-        print(msg.format('ligand residue name', ligand_name))
+        logger.debug(msg.format('ligand residue name', ligand_name))
 
     if args['--complex_name']:
         complex_name = args['--complex_name']
     else:
         complex_name = 'complex'
-        print(msg.format('complex name', complex_name))
+        logger.debug(msg.format('complex name', complex_name))
 
     if args['--solvent_name']:
         solvent_name = args['--solvent_name']
     else:
         solvent_name = 'solvent'
-        print(msg.format('solvent name', solvent_name))
+        logger.debug(msg.format('solvent name', solvent_name))
 
     if args['--num_frames']:
         num_frames = int(args['--num_frames'])
     else:
         num_frames = 10000
-        print(msg.format('number of frames', num_frames))
+        logger.debug(msg.format('number of frames', num_frames))
 
     if args['--net_charge']:
         net_charge = int(args['--net_charge'])
     else:
         net_charge = None
-        print(msg.format('net charge', net_charge))
+        logger.debug(msg.format('net charge', net_charge))
 
     if args['--charge_only']:
         charge_only = int(args['--charge_only'])
     else:
         charge_only = False
     if charge_only == True:
-        print('Mutating ligand charges only...')
+        logger.debug('Mutating ligand charges only...')
     else:
-        print('Mutating all ligand parameters...')
+        logger.debug('Mutating all ligand parameters...')
 
     if args['--optimize']:
         opt = int(args['--optimize'])
     else:
         opt = False
     if opt == True:
-        print('Optimizing ligand parameters...')
+        logger.debug('Optimizing ligand parameters...')
         c_atom_list = None
         h_atom_list = None
         auto_select = None
         job_type = 'optimize'
     else:
-        print('Scanning ligand...')
+        logger.debug('Scanning ligand...')
         if args['--c_atom_list']:
             c_atom_list = []
             pairs = args['--c_atom_list']
@@ -157,13 +160,13 @@ def main(argv=None):
                 raise ValueError('Allowed elements {}'.format(allowed_jobs))
         else:
             job_type = 'F'
-            print(msg.format('job_type', job_type))
+            logger.debug(msg.format('job_type', job_type))
 
     if args['--output_folder']:
         output_folder = args['--output_folder']
     else:
         output_folder = './' + mol_name + '_' + job_type + '/'
-        print(msg.format('output folder', output_folder))
+        logger.debug(msg.format('output folder', output_folder))
 
     # Run the setup pipeline.
     if args['--yaml_path']:

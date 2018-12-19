@@ -7,6 +7,9 @@ import simtk.openmm as mm
 import copy
 import numpy as np
 from simtk import unit
+import logging
+
+logger = logging.getLogger(__name__)
 
 class Mol2(object):
     def __init__(self, molecule=None, atoms=None, bonds=None, other=None):
@@ -250,7 +253,7 @@ class MutatedLigand(object):
 
 def run_ante(file_path, file_name, name, net_charge):
     if os.path.exists(file_path+name+'.prmtop'):
-        print('{0} found skipping antechamber and tleap for {1}'.format(file_path+name+'.prmtop', name))
+        logger.debug('{0} found skipping antechamber and tleap for {1}'.format(file_path+name+'.prmtop', name))
     else:
         moltool.amber.run_antechamber(molecule_name=file_path+name, input_filename=file_path+file_name,
                                       net_charge=net_charge, gaff_version='gaff2')

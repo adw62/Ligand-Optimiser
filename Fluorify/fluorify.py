@@ -11,6 +11,9 @@ import mdtraj as md
 import numpy as np
 import shutil
 from simtk import unit
+import logging
+
+logger = logging.getLogger(__name__)
 
 #CONSTANTS
 e = unit.elementary_charges
@@ -32,13 +35,13 @@ class Fluorify(object):
         solvent_sim_dir = input_folder + solvent_name + '/'
 
         if os.path.isdir(self.output_folder):
-            print('Output folder {} already exists. '
+            logger.debug('Output folder {} already exists. '
                   'Will attempt to skip ligand parametrisation, proceed with caution...'.format(self.output_folder))
         else:
             try:
                 os.makedirs(self.output_folder)
             except:
-                print('Could not create output folder {}'.format(self.output_folder))
+                logger.debug('Could not create output folder {}'.format(self.output_folder))
         shutil.copy2(input_folder+mol_file, self.output_folder)
         self.mol = Mol2()
         try:
@@ -59,10 +62,10 @@ class Fluorify(object):
                              'Charges will not be applied where expected')
         self.mol2_ligand_atoms = mol2_ligand_atoms
 
-        print('Parametrize wild type ligand...')
+        logger.debug('Parametrize wild type ligand...')
         wt_ligand = MutatedLigand(file_path=self.output_folder, mol_name=mol_name, net_charge=self.net_charge)
 
-        print('Loading complex and solvent systems...')
+        logger.debug('Loading complex and solvent systems...')
         #COMPLEX
         self.complex_sys = []
         self.complex_sys.append(FSim(ligand_name=ligand_name, sim_name=complex_name,
@@ -70,8 +73,12 @@ class Fluorify(object):
         self.complex_sys.append([complex_sim_dir + complex_name + '.dcd'])
         self.complex_sys.append(complex_sim_dir + complex_name + '.pdb')
         if not os.path.isfile(self.complex_sys[1][0]):
-            self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(complex_sim_dir, complex_name,
-                                                                            self.num_frames*2500, None)
+            self.complex_sys[1] = [complex_sim_dir + complex_name + '_gpu' + str(x) for x in range(num_gpu)]
+            for name in self.complex_sys[1]:
+                if not os.path.isfile(name):
+                    self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(complex_sim_dir, complex_name,
+                                                                                    self.num_frames*2500, None)
+                    break
         #SOLVENT
         self.solvent_sys = []
         self.solvent_sys.append(FSim(ligand_name=ligand_name, sim_name=solvent_name,
@@ -79,8 +86,12 @@ class Fluorify(object):
         self.solvent_sys.append([solvent_sim_dir + solvent_name + '.dcd'])
         self.solvent_sys.append(solvent_sim_dir + solvent_name + '.pdb')
         if not os.path.isfile(self.solvent_sys[1][0]):
-            self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(solvent_sim_dir, solvent_name,
-                                                                            self.num_frames*2500, None)
+            self.solvent_sys[1] = [solvent_sim_dir + solvent_name + '_gpu' + str(x) for x in range(num_gpu)]
+            for name in self.solvent_sys[1]:
+                if not os.path.isfile(name):
+                    self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(solvent_sim_dir, solvent_name,
+                                                                                    self.num_frames * 2500, None)
+                    break
 
         if opt:
             steps = 10
@@ -102,7 +113,7 @@ class Fluorify(object):
         Create OpenMM systems of ligands from prmtop files.
         Extract ligand parameters from OpenMM systems.
         """
-        print('Parametrize mutant ligands...')
+        logger.debug('Parametrize mutant ligands...')
         t0 = time.time()
 
         mutated_ligands = []
@@ -119,20 +130,20 @@ class Fluorify(object):
             mutant_parameters.append(ligand.get_parameters(mute))
 
         t1 = time.time()
-        print('Took {} seconds'.format(t1 - t0))
+        logger.debug('Took {} seconds'.format(t1 - t0))
 
         """
         Apply ligand charges to OpenMM complex and solvent systems.
         Calculate potential energy of simulation with mutant charges.
         Calculate free energy change from wild type to mutant.
         """
-        print('Calculating free energies...')
+        logger.debug('Calculating free energies...')
         t0 = time.time()
 
-        print('Computing complex potential energies...')
+        logger.debug('Computing complex potential energies...')
         complex_free_energy = FSim.treat_phase(self.complex_sys[0], wt_parameters, mutant_parameters,
                                                self.complex_sys[1], self.complex_sys[2], self.num_frames)
-        print('Computing solvent potential energies...')
+        logger.debug('Computing solvent potential energies...')
         solvent_free_energy = FSim.treat_phase(self.solvent_sys[0], wt_parameters, mutant_parameters,
                                                self.solvent_sys[1], self.solvent_sys[2], self.num_frames)
 
@@ -144,13 +155,13 @@ class Fluorify(object):
                 atom_index = int(atom)-1
                 atom_names.append(self.mol2_ligand_atoms[atom_index])
 
-            print('ddG for molecule{}.mol2 with'
+            logger.debug('ddG for molecule{}.mol2 with'
                   ' {} substituted for {}'.format(str(i), atom_names, self.job_type))
             binding_free_energy = energy - solvent_free_energy[i]
-            print(binding_free_energy)
+            logger.debug(binding_free_energy)
 
         t1 = time.time()
-        print('Took {} seconds'.format(t1 - t0))
+        logger.debug('Took {} seconds'.format(t1 - t0))
 
     def element_perturbation(self, auto_select, c_atom_list, h_atom_list):
         """

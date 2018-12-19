@@ -11,6 +11,9 @@ from sys import stdout
 import math
 from functools import partial
 from multiprocess import Pool
+import logging
+
+logger = logging.getLogger(__name__)
 
 #CONSTANTS
 e = unit.elementary_charges
@@ -121,9 +124,9 @@ def mutant_energy(mutant_systems, dcd, top, num_frames, nonbonded_index, chunk, 
     for index, mutant_system in enumerate(mutant_systems):
         mutant_num = ((index+1)+(chunk*int(device)))
         if wt:
-            print('Computing potential for wild type ligand')
+           logger.debug('Computing potential for wild type ligand')
         else:
-            print('Computing potential for mutant {0}/{1} on GPU {2}'.format(mutant_num, total_mut, device))
+            logger.debug('Computing potential for mutant {0}/{1} on GPU {2}'.format(mutant_num, total_mut, device))
         mutant_energies = []
         append = mutant_energies.append
         context = build_context(mutant_system, device=device)
@@ -194,21 +197,21 @@ def run_dynamics(dcd_name, system, pdb, n_steps):
     simulation = app.Simulation(pdb.topology, system, integrator, platform, properties)
     simulation.context.setPositions(pdb.positions)
 
-    print('Minimizing..')
+    logger.debug('Minimizing..')
     simulation.minimizeEnergy()
     simulation.context.setVelocitiesToTemperature(300 * unit.kelvin)
-    print('Equilibrating...')
+    logger.debug('Equilibrating...')
     equi = 250000
     simulation.step(equi)
 
     simulation.reporters.append(app.DCDReporter(dcd_name, 2500))
     simulation.reporters.append(app.StateDataReporter(stdout, 2500, step=True,
     potentialEnergy=True, temperature=True, progress=True, remainingTime=True,
-    speed=True, totalSteps=n_steps, separator='\t'))
+    speed=True, totalSteps=equi+n_steps, separator='\t'))
 
-    print('Running Production...')
+    logger.debug('Running Production...')
     simulation.step(n_steps)
-    print('Done!')
+    logger.debug('Done!')
 
 
 def get_free_energy(mutant_energy, wildtype_energy):
