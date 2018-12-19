@@ -79,7 +79,7 @@ def main(argv=None):
     if args['--num_frames']:
         num_frames = int(args['--num_frames'])
     else:
-        num_frames = 9500
+        num_frames = 10000
         print(msg.format('number of frames', num_frames))
 
     if args['--net_charge']:
