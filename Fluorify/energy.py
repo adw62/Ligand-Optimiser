@@ -112,7 +112,7 @@ class FSim(object):
         return mutants_systems_energies
 
 
-def mutant_energy(mutant_systems, dcd, top, num_frames, nonbonded_index, chunk, total_mut, wt=False):
+def mutant_energy(mutant_systems, dcd, top, num_frames, nonbonded_index, chunk, total_mut, wt):
     top = md.load(top).topology
     mutants_systems_energies = []
     KJ_M = unit.kilojoule_per_mole
@@ -143,7 +143,7 @@ def grouper(mutant_systems, chunk):
         group = []
         for j in range(chunk):
             try:
-                group.append(mutant_systems[j+i+1])
+                group.append(mutant_systems[j+(i*chunk)])
             except IndexError:
                 pass
         groups.append(group)
