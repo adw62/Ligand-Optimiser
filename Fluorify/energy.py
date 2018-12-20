@@ -34,7 +34,7 @@ class FSim(object):
         self.charge_only = charge_only
         #Create system from input files
         sim_dir = input_folder + sim_name + '/'
-        self.snapshot = md.load(sim_dir + sim_name + '.pdb')
+        snapshot = md.load(sim_dir + sim_name + '.pdb')
         self.pdb = mm.app.pdbfile.PDBFile(sim_dir + sim_name + '.pdb')
         parameters_file_path = sim_dir + sim_name + '.prmtop'
         self.parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
@@ -47,18 +47,15 @@ class FSim(object):
             force.setForceGroup(force_index)
 
         self.wt_system = system
-        self.ligand_atoms = FSim.get_ligand_atoms(self, ligand_name)
+        self.ligand_atoms = get_ligand_atoms(ligand_name, snapshot)
 
     def run_parallel_dynamics(self, output_folder, name, n_steps, mutant_parameters):
         mutant_system = copy.deepcopy(self.wt_system)
         if mutant_parameters is not None:
             non_bonded_force = mutant_system.getForce(self.nonbonded_index)
             self.apply_parameters(non_bonded_force, mutant_parameters)
-            context = build_context(mutant_system, device='0')#This device entry is ignored
-            system = context.getSystem()
-        else:
-            system = mutant_system
 
+        system = mutant_system
         box_vectors = self.pdb.topology.getPeriodicBoxVectors()
         system.setDefaultPeriodicBoxVectors(*box_vectors)
         system.addForce(mm.MonteCarloBarostat(1 * unit.atmospheres, 300 * unit.kelvin, 25))
@@ -68,12 +65,6 @@ class FSim(object):
         run = partial(run_dynamics, system=system, pdb=self.pdb, n_steps=math.ceil(n_steps/self.num_gpu))
         pool.map(run, dcd_names)
         return dcd_names
-
-    def get_ligand_atoms(self, ligand_name):
-        ligand_atoms = self.snapshot.topology.select('resname {}'.format(ligand_name))
-        if len(ligand_atoms) == 0:
-            raise ValueError('Did not find ligand in supplied topology by name {}'.format(ligand_name))
-        return ligand_atoms
 
     def treat_phase(self, wt_parameters, mutant_parameters, dcd, top, num_frames, wildtype_energy=None):
         if wildtype_energy is None:
@@ -97,48 +88,51 @@ class FSim(object):
         f.close()
 
     def get_mutant_energy(self, parameters, dcd, top, num_frames, wt=False):
-        mutant_systems = []
         chunk = math.ceil(len(parameters)/self.num_gpu)
-        for mutant_parameters in parameters:
-            mutant_system = copy.deepcopy(self.wt_system)
-            FSim.apply_parameters(self, mutant_system.getForce(self.nonbonded_index), mutant_parameters)
-            mutant_systems.append(mutant_system)
         if wt:
-            groups = [[mutant_systems, '0']]
+            groups = [[parameters, '0']]
         else:
-            groups = grouper(mutant_systems, chunk)
+            groups = grouper(parameters, chunk)
         pool = Pool(processes=self.num_gpu)
-        mutant_eng = partial(mutant_energy, dcd=dcd, top=top, num_frames=num_frames,
-                             nonbonded_index=self.nonbonded_index, chunk=chunk, total_mut=len(parameters), wt=wt)
+        mutant_eng = partial(mutant_energy, simulation=self, dcd=dcd, top=top, num_frames=num_frames,
+                             chunk=chunk, total_mut=len(parameters), wt=wt)
         mutants_systems_energies = pool.map(mutant_eng, groups)
         mutants_systems_energies = [x for y in mutants_systems_energies for x in y]
         return mutants_systems_energies
 
 
-def mutant_energy(mutant_systems, dcd, top, num_frames, nonbonded_index, chunk, total_mut, wt):
+def mutant_energy(parameters, simulation, dcd, top, num_frames, chunk, total_mut, wt):
     top = md.load(top).topology
+    device = parameters[1]
+    parameters = parameters[0]
     mutants_systems_energies = []
     KJ_M = unit.kilojoule_per_mole
-    device = mutant_systems[1]
-    mutant_systems = mutant_systems[0]
-    for index, mutant_system in enumerate(mutant_systems):
+    for index, mutant_parameters in enumerate(parameters):
+        mutant_energies = []
+        append = mutant_energies.append
+        mutant_system = copy.deepcopy(simulation.wt_system)
+        simulation.apply_parameters(mutant_system.getForce(simulation.nonbonded_index), mutant_parameters)
         mutant_num = ((index+1)+(chunk*int(device)))
         if wt:
            logger.debug('Computing potential for wild type ligand')
         else:
             logger.debug('Computing potential for mutant {0}/{1} on GPU {2}'.format(mutant_num, total_mut, device))
-        mutant_energies = []
-        append = mutant_energies.append
         context = build_context(mutant_system, device=device)
         for frame in frames(dcd, top, maxframes=num_frames):
             context.setPositions(frame.xyz[0])
             context.setPeriodicBoxVectors(frame.unitcell_vectors[0][0],
                                           frame.unitcell_vectors[0][1], frame.unitcell_vectors[0][2])
-            energy = context.getState(getEnergy=True, groups={nonbonded_index}).getPotentialEnergy()
+            energy = context.getState(getEnergy=True, groups={simulation.nonbonded_index}).getPotentialEnergy()
             append(energy / KJ_M)
         mutants_systems_energies.append(mutant_energies)
     return mutants_systems_energies
 
+
+def get_ligand_atoms(ligand_name, snapshot):
+    ligand_atoms = snapshot.topology.select('resname {}'.format(ligand_name))
+    if len(ligand_atoms) == 0:
+        raise ValueError('Did not find ligand in supplied topology by name {}'.format(ligand_name))
+    return ligand_atoms
 
 def grouper(mutant_systems, chunk):
     groups = []
@@ -201,7 +195,7 @@ def run_dynamics(dcd_name, system, pdb, n_steps):
     simulation.minimizeEnergy()
     simulation.context.setVelocitiesToTemperature(300 * unit.kelvin)
     logger.debug('Equilibrating...')
-    equi = 250000
+    equi = 10 #250000
     simulation.step(equi)
 
     simulation.reporters.append(app.DCDReporter(dcd_name, 2500))
