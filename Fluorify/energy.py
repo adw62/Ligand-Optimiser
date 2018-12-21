@@ -7,7 +7,6 @@ import mdtraj as md
 import numpy as np
 import copy
 from sys import stdout
-
 import math
 from functools import partial
 from multiprocess import Pool
@@ -50,20 +49,19 @@ class FSim(object):
         self.ligand_atoms = get_ligand_atoms(ligand_name, snapshot)
 
     def run_parallel_dynamics(self, output_folder, name, n_steps, mutant_parameters):
-        mutant_system = copy.deepcopy(self.wt_system)
+        system = copy.deepcopy(self.wt_system)
         if mutant_parameters is not None:
-            non_bonded_force = mutant_system.getForce(self.nonbonded_index)
+            non_bonded_force = system.getForce(self.nonbonded_index)
             self.apply_parameters(non_bonded_force, mutant_parameters)
 
-        system = mutant_system
         box_vectors = self.pdb.topology.getPeriodicBoxVectors()
         system.setDefaultPeriodicBoxVectors(*box_vectors)
         system.addForce(mm.MonteCarloBarostat(1 * unit.atmospheres, 300 * unit.kelvin, 25))
 
         dcd_names = [output_folder+name+'_gpu'+str(i) for i in range(self.num_gpu)]
-        pool = Pool(processes=self.num_gpu)
-        run = partial(run_dynamics, system=system, pdb=self.pdb, n_steps=math.ceil(n_steps/self.num_gpu))
-        pool.map(run, dcd_names)
+        with Pool(processes=self.num_gpu) as pool:
+            run = partial(run_dynamics, system=system, pdb=self.pdb, n_steps=math.ceil(n_steps/self.num_gpu))
+            pool.map(run, dcd_names)
         return dcd_names
 
     def treat_phase(self, wt_parameters, mutant_parameters, dcd, top, num_frames, wildtype_energy=None):
@@ -93,37 +91,39 @@ class FSim(object):
             groups = [[parameters, '0']]
         else:
             groups = grouper(parameters, chunk)
-        pool = Pool(processes=self.num_gpu)
-        mutant_eng = partial(mutant_energy, simulation=self, dcd=dcd, top=top, num_frames=num_frames,
-                             chunk=chunk, total_mut=len(parameters), wt=wt)
-        mutants_systems_energies = pool.map(mutant_eng, groups)
+        with Pool(processes=self.num_gpu) as pool:
+            mutant_eng = partial(mutant_energy, sim=self, dcd=dcd, top=top, num_frames=num_frames,
+                                chunk=chunk, total_mut=len(parameters), wt=wt)
+            mutants_systems_energies = pool.map(mutant_eng, groups)
         mutants_systems_energies = [x for y in mutants_systems_energies for x in y]
         return mutants_systems_energies
 
 
-def mutant_energy(parameters, simulation, dcd, top, num_frames, chunk, total_mut, wt):
+def mutant_energy(parameters, sim, dcd, top, num_frames, chunk, total_mut, wt):
+    mutants_systems_energies = []
+    kj_m = unit.kilojoule_per_mole
     top = md.load(top).topology
     device = parameters[1]
     parameters = parameters[0]
-    mutants_systems_energies = []
-    KJ_M = unit.kilojoule_per_mole
+    system = copy.deepcopy(sim.wt_system)
+    context = build_context(system, device=device)
     for index, mutant_parameters in enumerate(parameters):
         mutant_energies = []
         append = mutant_energies.append
-        mutant_system = copy.deepcopy(simulation.wt_system)
-        simulation.apply_parameters(mutant_system.getForce(simulation.nonbonded_index), mutant_parameters)
         mutant_num = ((index+1)+(chunk*int(device)))
         if wt:
            logger.debug('Computing potential for wild type ligand')
         else:
             logger.debug('Computing potential for mutant {0}/{1} on GPU {2}'.format(mutant_num, total_mut, device))
-        context = build_context(mutant_system, device=device)
+        force = system.getForce(sim.nonbonded_index)
+        sim.apply_parameters(force, mutant_parameters)
+        force.updateParametersInContext(context)
         for frame in frames(dcd, top, maxframes=num_frames):
             context.setPositions(frame.xyz[0])
             context.setPeriodicBoxVectors(frame.unitcell_vectors[0][0],
                                           frame.unitcell_vectors[0][1], frame.unitcell_vectors[0][2])
-            energy = context.getState(getEnergy=True, groups={simulation.nonbonded_index}).getPotentialEnergy()
-            append(energy / KJ_M)
+            energy = context.getState(getEnergy=True, groups={sim.nonbonded_index}).getPotentialEnergy()
+            append(energy / kj_m)
         mutants_systems_energies.append(mutant_energies)
     return mutants_systems_energies
 
@@ -133,6 +133,7 @@ def get_ligand_atoms(ligand_name, snapshot):
     if len(ligand_atoms) == 0:
         raise ValueError('Did not find ligand in supplied topology by name {}'.format(ligand_name))
     return ligand_atoms
+
 
 def grouper(mutant_systems, chunk):
     groups = []
