@@ -73,7 +73,7 @@ class Fluorify(object):
         self.complex_sys.append([complex_sim_dir + complex_name + '.dcd'])
         self.complex_sys.append(complex_sim_dir + complex_name + '.pdb')
         if not os.path.isfile(self.complex_sys[1][0]):
-            self.complex_sys[1] = [complex_sim_dir + complex_name + '_gpu' + str(x) for x in range(num_gpu)]
+            self.complex_sys[1] = [complex_sim_dir + complex_name + '_gpu' + str(x) + '.dcd' for x in range(num_gpu)]
             for name in self.complex_sys[1]:
                 if not os.path.isfile(name):
                     self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(complex_sim_dir, complex_name,
@@ -86,7 +86,7 @@ class Fluorify(object):
         self.solvent_sys.append([solvent_sim_dir + solvent_name + '.dcd'])
         self.solvent_sys.append(solvent_sim_dir + solvent_name + '.pdb')
         if not os.path.isfile(self.solvent_sys[1][0]):
-            self.solvent_sys[1] = [solvent_sim_dir + solvent_name + '_gpu' + str(x) for x in range(num_gpu)]
+            self.solvent_sys[1] = [solvent_sim_dir + solvent_name + '_gpu' + str(x) + '.dcd' for x in range(num_gpu)]
             for name in self.solvent_sys[1]:
                 if not os.path.isfile(name):
                     self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(solvent_sim_dir, solvent_name,
@@ -94,7 +94,7 @@ class Fluorify(object):
                     break
 
         if opt:
-            steps = 10
+            steps = 1
             name = 'scipy'
             Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, name, steps)
         else:

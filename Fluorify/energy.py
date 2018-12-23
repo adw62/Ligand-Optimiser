@@ -12,6 +12,8 @@ from functools import partial
 from multiprocess import Pool
 import logging
 
+from pymbar import MBAR, timeseries
+
 logger = logging.getLogger(__name__)
 
 #CONSTANTS
@@ -21,7 +23,8 @@ T = 300
 kT = kB * T # Unit: kJ/mol
 
 class FSim(object):
-    def __init__(self, ligand_name, sim_name, input_folder, charge_only, num_gpu):
+    def __init__(self, ligand_name, sim_name, input_folder, charge_only, num_gpu,
+                 temperature=300*unit.kelvin, friction=0.3/unit.picosecond, timestep=2.0*unit.femtosecond):
         """ A class for creating OpenMM context from input files and calculating free energy
         change when modifying the parameters of the system in the context.
 
@@ -29,8 +32,12 @@ class FSim(object):
         sim_name: complex or solvent
         input_folder: input directory
         """
+        self.temperature = temperature
+        self.friction = friction
+        self.timestep = timestep
         self.num_gpu = num_gpu
         self.charge_only = charge_only
+        self.name = sim_name
         #Create system from input files
         sim_dir = input_folder + sim_name + '/'
         snapshot = md.load(sim_dir + sim_name + '.pdb')
@@ -48,6 +55,49 @@ class FSim(object):
         self.wt_system = system
         self.ligand_atoms = get_ligand_atoms(ligand_name, snapshot)
 
+    def run_parallel_fep(self, wt_parameters, mutant_parameters, n_steps, n_iterations, lambdas):
+        logger.debug('Computing FEP for {}...'.format(self.name))
+        mutant_systems = []
+        nstates = len(lambdas)
+        if self.charge_only:
+            param_diff = [[x[0]-y[0]] for x, y in zip(wt_parameters, mutant_parameters)]
+            for lam in lambdas:
+                mutant_systems.append([[-x[0]*lam+y[0]] for x, y in zip(param_diff, wt_parameters)])
+        else:
+            param_diff = [[x[0]-y[0], x[1]-y[1], x[2]-y[2]] for x, y in zip(wt_parameters, mutant_parameters)]
+            for lam in lambdas:
+                mutant_systems.append([[-x[0]*lam+y[0], -x[1]*lam+y[1], -x[2]*lam+y[2]]
+                                       for x, y in zip(param_diff, wt_parameters)])
+        chunk = math.ceil(len(mutant_systems) / self.num_gpu)
+        groups = grouper(mutant_systems, chunk)
+        pool = Pool(processes=self.num_gpu)
+        system = copy.deepcopy(self.wt_system)
+        box_vectors = self.pdb.topology.getPeriodicBoxVectors()
+        system.setDefaultPeriodicBoxVectors(*box_vectors)
+        system.addForce(mm.MonteCarloBarostat(1 * unit.atmospheres, 300 * unit.kelvin, 25))###
+        fep = partial(run_fep, sim=self, system=system, pdb=self.pdb,
+                      n_steps=n_steps, n_iterations=n_iterations, chunk=chunk, all_mutants=mutant_systems)
+        u_kln = pool.map(fep, groups)
+        pool.close()
+        pool.join()
+        pool.terminate()
+
+        u_kln = np.vstack(u_kln)
+        # Subsample data to extract uncorrelated equilibrium timeseries
+        N_k = np.zeros([nstates], np.int32)  # number of uncorrelated samples
+        for k in range(nstates):
+            [_, g, __] = timeseries.detectEquilibration(u_kln[k, k, :])
+            indices = timeseries.subsampleCorrelatedData(u_kln[k, k, :], g=g)
+            N_k[k] = len(indices)
+            u_kln[k, :, 0:N_k[k]] = u_kln[k, :, indices].T
+        # Compute free energy differences and statistical uncertainties
+        mbar = MBAR(u_kln, N_k)
+        [DeltaF_ij, dDeltaF_ij, _] = mbar.getFreeEnergyDifferences()
+        logger.debug("Number of uncorrelated samples per state: {}".format(N_k))
+        logger.debug("Relative free energy change for {0} =: {1} +- {2} kT"
+              .format(self.name, DeltaF_ij[0, nstates - 1], dDeltaF_ij[0, nstates - 1]))
+        return DeltaF_ij[0, nstates - 1]
+
     def run_parallel_dynamics(self, output_folder, name, n_steps, mutant_parameters):
         system = copy.deepcopy(self.wt_system)
         if mutant_parameters is not None:
@@ -56,16 +106,26 @@ class FSim(object):
 
         box_vectors = self.pdb.topology.getPeriodicBoxVectors()
         system.setDefaultPeriodicBoxVectors(*box_vectors)
-        system.addForce(mm.MonteCarloBarostat(1 * unit.atmospheres, 300 * unit.kelvin, 25))
+        system.addForce(mm.MonteCarloBarostat(1 * unit.atmospheres, 300 * unit.kelvin, 25))###
 
-        dcd_names = [output_folder+name+'_gpu'+str(i) for i in range(self.num_gpu)]
+        dcd_names = [output_folder+name+'_gpu'+str(i)+'.dcd' for i in range(self.num_gpu)]
+        groups = grouper(dcd_names, 1)
         pool = Pool(processes=self.num_gpu)
-        run = partial(run_dynamics, system=system, pdb=self.pdb, n_steps=math.ceil(n_steps/self.num_gpu))
-        pool.map(run, dcd_names)
+        run = partial(run_dynamics, system=system, pdb=self.pdb, n_steps=math.ceil(n_steps/self.num_gpu),
+                      temperature=self.temperature, friction=self.friction, timestep=self.timestep)
+        pool.map(run, groups)
         pool.close()
         pool.join()
         pool.terminate()
         return dcd_names
+
+    def build_context(self, system, device):
+        integrator = mm.LangevinIntegrator(self.temperature, self.friction, self.timestep)
+        integrator.setConstraintTolerance(0.00001)
+        platform = mm.Platform.getPlatformByName('CUDA')
+        properties = {'CudaPrecision': 'mixed', 'CudaDeviceIndex': device}
+        context = mm.Context(system, integrator, platform, properties)
+        return context, integrator
 
     def treat_phase(self, wt_parameters, mutant_parameters, dcd, top, num_frames, wildtype_energy=None):
         if wildtype_energy is None:
@@ -113,7 +173,8 @@ def mutant_energy(parameters, sim, dcd, top, num_frames, chunk, total_mut, wt):
     parameters = parameters[0]
     nonbonded_index = sim.nonbonded_index
     system = copy.deepcopy(sim.wt_system)
-    context = build_context(system, device=device)
+    context, integrator = sim.build_context(system, device=device)
+    del integrator
     for index, mutant_parameters in enumerate(parameters):
         mutant_num = ((index+1)+(chunk*int(device)))
         if wt:
@@ -143,26 +204,18 @@ def get_ligand_atoms(ligand_name, snapshot):
     return ligand_atoms
 
 
-def grouper(mutant_systems, chunk):
+def grouper(list_to_distribute, chunk):
     groups = []
-    for i in range(math.ceil(len(mutant_systems)/chunk)):
+    for i in range(int(math.ceil(len(list_to_distribute)/chunk))):
         group = []
         for j in range(chunk):
             try:
-                group.append(mutant_systems[j+(i*chunk)])
+                group.append(list_to_distribute[j+(i*chunk)])
             except IndexError:
                 pass
         groups.append(group)
     groups = [[groups[i], str(i)] for i in range(len(groups))]
     return groups
-
-
-def build_context(system, device):
-    integrator = mm.VerletIntegrator(2.0*unit.femtoseconds)
-    platform = mm.Platform.getPlatformByName('CUDA')
-    properties = {'CudaPrecision': 'mixed', 'CudaDeviceIndex': device}
-    context = mm.Context(system, integrator, platform, properties)
-    return context
 
 
 def frames(dcd, top, maxframes):
@@ -173,7 +226,37 @@ def frames(dcd, top, maxframes):
             yield frame
 
 
-def run_dynamics(dcd_name, system, pdb, n_steps):
+def run_fep(parameters, sim, system, pdb, n_steps, n_iterations, chunk, all_mutants):
+    device = parameters[1]
+    parameters = parameters[0]
+    nonbonded_index = sim.nonbonded_index
+    context, integrator = sim.build_context(system, device)
+    context.setPositions(pdb.positions)
+    logger.debug('Minimizing..')
+    mm.LocalEnergyMinimizer.minimize(context)
+    temperature = 300 * unit.kelvin
+    context.setVelocitiesToTemperature(temperature)
+    total_states = len(all_mutants)
+    nstates = len(parameters)
+    u_kln = np.zeros([nstates, total_states, n_iterations], np.float64)
+    test = unit.AVOGADRO_CONSTANT_NA * unit.BOLTZMANN_CONSTANT_kB * temperature
+    force = system.getForce(nonbonded_index)
+    for k, local_mutant in enumerate(parameters):
+        window = ((k+1)+(chunk*int(device)))
+        logger.debug('Computing potentials for FEP window {0}/{1} on GPU {2}'.format(window, total_states, device))
+        for iteration in range(n_iterations):
+            sim.apply_parameters(force, local_mutant)
+            force.updateParametersInContext(context)
+            # Run some dynamics
+            integrator.step(n_steps)
+            # Compute energies at all alchemical states
+            for l, global_mutant in enumerate(all_mutants):
+                sim.apply_parameters(force, global_mutant)
+                force.updateParametersInContext(context)
+                u_kln[k, l, iteration] = context.getState(getEnergy=True, groups={nonbonded_index}).getPotentialEnergy() / test
+    return u_kln
+
+def run_dynamics(dcd_name, system, pdb, n_steps, temperature, friction, timestep):
     """
     Given an OpenMM Context object and options, perform molecular dynamics
     calculations.
@@ -186,23 +269,20 @@ def run_dynamics(dcd_name, system, pdb, n_steps):
     Returns
     -------
 
-
     """
-    temperature = 300 * unit.kelvin
-    friction = 0.3 / unit.picosecond
-    timestep = 2.0 * unit.femtosecond
     integrator = mm.LangevinIntegrator(temperature, friction, timestep)
     integrator.setConstraintTolerance(0.00001)
 
     platform = mm.Platform.getPlatformByName('CUDA')
-    device = dcd_name[-1]
+    device = dcd_name[1]
+    dcd_name = dcd_name[0][0]
     properties = {'CudaPrecision': 'mixed', 'CudaDeviceIndex': device} #dcd_name
     simulation = app.Simulation(pdb.topology, system, integrator, platform, properties)
     simulation.context.setPositions(pdb.positions)
 
     logger.debug('Minimizing..')
     simulation.minimizeEnergy()
-    simulation.context.setVelocitiesToTemperature(300 * unit.kelvin)
+    simulation.context.setVelocitiesToTemperature(temperature)
     logger.debug('Equilibrating...')
     equi = 250000
     simulation.step(equi)

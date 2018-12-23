@@ -5,6 +5,7 @@ from simtk import unit
 from scipy.optimize import minimize
 import copy
 import logging
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +29,16 @@ class Optimize(object):
         """optimising ligand charges
         """
         if name == 'scipy':
-            opt_charges, ddg = Optimize.scipy_opt(self)
-            logger.debug(opt_charges)
+            opt_charges, ddg_fs = Optimize.scipy_opt(self)
+            opt_charges = [[x] for x in opt_charges]
+            fep = True
+            lambdas = np.linspace(0.0, 1.0, 10)
+            if fep:
+                complex_dg = self.complex_sys[0].run_parallel_fep(self.wt_parameters, opt_charges, 500000, 50, lambdas)
+                solvent_dg = self.solvent_sys[0].run_parallel_fep(self.wt_parameters, opt_charges, 500000, 50, lambdas)
+                ddg_fep = complex_dg - solvent_dg
+                logger.debug('ddG Fluorine Scanning = {}'.format(ddg_fs))
+                logger.debug('ddG FEP = {}'.format(ddg_fep))
         else:
             Optimize.grad_opt(self, name)
 
