@@ -31,6 +31,7 @@ class Optimize(object):
         if name == 'scipy':
             opt_charges, ddg_fs = Optimize.scipy_opt(self)
             opt_charges = [[x] for x in opt_charges]
+            logger.debug(opt_charges)
             fep = True
             lambdas = np.linspace(0.0, 1.0, 10)
             if fep:
