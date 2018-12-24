@@ -68,13 +68,16 @@ class FSim(object):
             for lam in lambdas:
                 mutant_systems.append([[-x[0]*lam+y[0], -x[1]*lam+y[1], -x[2]*lam+y[2]]
                                        for x, y in zip(param_diff, wt_parameters)])
+
         chunk = math.ceil(len(mutant_systems) / self.num_gpu)
         groups = grouper(mutant_systems, chunk)
         pool = Pool(processes=self.num_gpu)
+
         system = copy.deepcopy(self.wt_system)
         box_vectors = self.pdb.topology.getPeriodicBoxVectors()
         system.setDefaultPeriodicBoxVectors(*box_vectors)
         system.addForce(mm.MonteCarloBarostat(1 * unit.atmospheres, 300 * unit.kelvin, 25))###
+
         fep = partial(run_fep, sim=self, system=system, pdb=self.pdb,
                       n_steps=n_steps, n_iterations=n_iterations, chunk=chunk, all_mutants=mutant_systems)
         u_kln = pool.map(fep, groups)

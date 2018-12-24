@@ -94,7 +94,7 @@ class Fluorify(object):
                     break
 
         if opt:
-            steps = 10
+            steps = 12
             name = 'scipy'
             Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, name, steps)
         else:
@@ -148,6 +148,7 @@ class Fluorify(object):
                                                self.solvent_sys[1], self.solvent_sys[2], self.num_frames)
 
         #RESULT
+        best_mutants = []
         for i, energy in enumerate(complex_free_energy):
             atom_names = []
             replace = mutations[i]['replace']
@@ -158,10 +159,29 @@ class Fluorify(object):
             logger.debug('ddG for molecule{}.mol2 with'
                   ' {} substituted for {}'.format(str(i), atom_names, self.job_type))
             binding_free_energy = energy - solvent_free_energy[i]
+            best_mutants.append([binding_free_energy, atom_names, mutant_parameters[i]])
             logger.debug(binding_free_energy)
-
+        best_mutants = sorted(best_mutants)
         t1 = time.time()
         logger.debug('Took {} seconds'.format(t1 - t0))
+
+        x_best = 3
+        fep = True
+        if fep:
+            logger.debug('Calculating FEP for {} best mutants...'.format(x_best))
+            t0 = time.time()
+
+            lambdas = np.linspace(0.0, 1.0, 10)
+            for x in range(x_best):
+                complex_dg = self.complex_sys[0].run_parallel_fep(wt_parameters, best_mutants[x][2], 20000, 50, lambdas)
+                solvent_dg = self.solvent_sys[0].run_parallel_fep(wt_parameters, best_mutants[x][2], 20000, 50, lambdas)
+                ddg_fep = complex_dg - solvent_dg
+                logger.debug('Mutant {}:'.format(best_mutants[x][1]))
+                logger.debug('ddG Fluorine Scanning = {}'.format(best_mutants[x][0]))
+                logger.debug('ddG FEP = {}'.format(ddg_fep))
+
+            t1 = time.time()
+            logger.debug('Took {} seconds'.format(t1 - t0))
 
     def element_perturbation(self, auto_select, c_atom_list, h_atom_list):
         """
