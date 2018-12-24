@@ -35,8 +35,8 @@ class Optimize(object):
             fep = True
             lambdas = np.linspace(0.0, 1.0, 10)
             if fep:
-                complex_dg = self.complex_sys[0].run_parallel_fep(self.wt_parameters, opt_charges, 500000, 50, lambdas)
-                solvent_dg = self.solvent_sys[0].run_parallel_fep(self.wt_parameters, opt_charges, 500000, 50, lambdas)
+                complex_dg = self.complex_sys[0].run_parallel_fep(self.wt_parameters, opt_charges, 50000, 50, lambdas)
+                solvent_dg = self.solvent_sys[0].run_parallel_fep(self.wt_parameters, opt_charges, 50000, 50, lambdas)
                 ddg_fep = complex_dg - solvent_dg
                 logger.debug('ddG Fluorine Scanning = {}'.format(ddg_fs))
                 logger.debug('ddG FEP = {}'.format(ddg_fep))
@@ -47,24 +47,29 @@ class Optimize(object):
     def scipy_opt(self):
         cons = {'type': 'eq', 'fun': constraint, 'args': [self.net_charge]}
         charges = self.wt_parameters
-        prev_charges = self.wt_parameters
         ddg = 0.0
         for step in range(self.steps):
             max_change = 0.5
-            bnds = [sorted((x[0] - max_change * x[0], x[0] + max_change * x[0])) for x in prev_charges]
+            bnds = [sorted((x[0] - max_change * x[0], x[0] + max_change * x[0])) for x in charges]
             sol = minimize(objective, charges, bounds=bnds, options={'maxiter': 1}, jac=gradient,
-                           args=(prev_charges, self.complex_sys, self.solvent_sys, self.num_frames), constraints=cons)
+                           args=(charges, self.complex_sys, self.solvent_sys, self.num_frames), constraints=cons)
             prev_charges = charges
             charges = [[x] for x in sol.x]
+
+            #run new dynamics with updated charges
+            self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex_step'+str(step),
+                                                                            self.num_frames*2500, charges)
+            self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent_step'+str(step),
+                                                                            self.num_frames*2500, charges)
+            prev_charges = [x[0] for x in prev_charges]
+            logger.debug('Computing reverse leg of accepted free energy step...')
+            reverse_ddg = -1*objective(prev_charges, charges, self.complex_sys, self.solvent_sys, self.num_frames)
+            if abs(sol.fun) >= 2*abs(reverse_ddg) or abs(sol.fun) <= 0.5*abs(reverse_ddg):
+                logger.debug('Forward {} and reversed {} are not well agreed. Need more sampling'.format(sol.fun, reverse_ddg))
+            ddg += (sol.fun+reverse_ddg)/2.0
             logger.debug(sol)
-            ddg += sol.fun
             logger.debug("Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step+1, self.steps))
-            if step != 0:
-                #run new dynamics with updated charges
-                self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex_step'+str(step),
-                                                                                self.num_frames*2500, prev_charges)
-                self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent_step'+str(step),
-                                                                                self.num_frames*2500, prev_charges)
+
         return sol.x, ddg
 
     def grad_opt(self, opt_type):
