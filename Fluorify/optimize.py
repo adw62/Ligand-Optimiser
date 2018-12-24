@@ -20,6 +20,7 @@ class Optimize(object):
         self.num_frames = num_frames
         self.steps = steps
         self.output_folder = output_folder
+        #TODO add VDW
         wt_parameters = [x[0]/e for x in wt_ligand.get_parameters()]
         self.net_charge = sum(wt_parameters)
         self.wt_parameters = [[x] for x in wt_parameters]

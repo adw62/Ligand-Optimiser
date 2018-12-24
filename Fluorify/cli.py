@@ -18,7 +18,7 @@ FLUORIFY
 Usage:
   Fluorify [--output_folder=STRING] [--mol_name=STRING] [--ligand_name=STRING] [--complex_name=STRING] 
            [--solvent_name=STRING] [--yaml_path=STRING] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT]
-           [--net_charge=INT] [--auto_select=STRING] [--charge_only=BOOL] [--optimize=BOOL] [--num_gpu=INT] [--job_type=STRING]...
+           [--net_charge=INT] [--gaff_ver=INT] [--auto_select=STRING] [--charge_only=BOOL] [--optimize=BOOL] [--num_gpu=INT] [--job_type=STRING]...
 """
 
 
@@ -90,6 +90,14 @@ def main(argv=None):
     else:
         net_charge = None
         logger.debug(msg.format('net charge', net_charge))
+
+    if args['--gaff_ver']:
+        gaff_ver = int(args['--gaff_ver'])
+        if gaff_ver != 1 and gaff_ver != 2:
+            raise ValueError('Can only use gaff ver. 1 or 2')
+    else:
+        gaff_ver = 2
+        logger.debug(msg.format('gaff version', net_charge))
 
     if args['--charge_only']:
         charge_only = int(args['--charge_only'])
@@ -178,5 +186,5 @@ def main(argv=None):
         num_gpu = 1
 
     Fluorify(output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name,
-         job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, opt, num_gpu)
+         job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu)
 

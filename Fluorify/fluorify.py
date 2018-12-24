@@ -20,12 +20,13 @@ e = unit.elementary_charges
 
 class Fluorify(object):
     def __init__(self, output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name,
-                 job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, opt, num_gpu):
+                 job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu):
 
         self.output_folder = output_folder
         self.net_charge = net_charge
         self.job_type = job_type
         self.num_frames = num_frames
+        self.gaff_ver = gaff_ver
 
         # Prepare directories/files and read in ligand from mol2 file
         mol_file = mol_name + '.mol2'
@@ -63,7 +64,8 @@ class Fluorify(object):
         self.mol2_ligand_atoms = mol2_ligand_atoms
 
         logger.debug('Parametrize wild type ligand...')
-        wt_ligand = MutatedLigand(file_path=self.output_folder, mol_name=mol_name, net_charge=self.net_charge)
+        wt_ligand = MutatedLigand(file_path=self.output_folder, mol_name=mol_name,
+                                  net_charge=self.net_charge, gaff=self.gaff_ver)
 
         logger.debug('Loading complex and solvent systems...')
         #COMPLEX
@@ -120,8 +122,8 @@ class Fluorify(object):
         for index, sys in enumerate(mutated_systems):
             mol_name = 'molecule'+str(index)
             Mol2.write_mol2(sys, self.output_folder, mol_name)
-            mutated_ligands.append(MutatedLigand(file_path=self.output_folder,
-                                                 mol_name=mol_name, net_charge=self.net_charge))
+            mutated_ligands.append(MutatedLigand(file_path=self.output_folder, mol_name=mol_name,
+                                                 net_charge=self.net_charge, gaff=self.gaff_ver))
 
         wt_parameters = wt_ligand.get_parameters()
         mutant_parameters = []

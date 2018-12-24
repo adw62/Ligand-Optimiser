@@ -97,7 +97,7 @@ class FSim(object):
         mbar = MBAR(u_kln, N_k)
         [DeltaF_ij, dDeltaF_ij, _] = mbar.getFreeEnergyDifferences()
         logger.debug("Number of uncorrelated samples per state: {}".format(N_k))
-        logger.debug("Relative free energy change for {0} =: {1} +- {2} kT"
+        logger.debug("Relative free energy change for {0} = {1} +- {2} kT"
               .format(self.name, DeltaF_ij[0, nstates - 1], dDeltaF_ij[0, nstates - 1]))
         return DeltaF_ij[0, nstates - 1]
 
@@ -200,35 +200,6 @@ def mutant_energy(parameters, sim, dcd, top, num_frames, chunk, total_mut, wt):
     return mutants_systems_energies
 
 
-def get_ligand_atoms(ligand_name, snapshot):
-    ligand_atoms = snapshot.topology.select('resname {}'.format(ligand_name))
-    if len(ligand_atoms) == 0:
-        raise ValueError('Did not find ligand in supplied topology by name {}'.format(ligand_name))
-    return ligand_atoms
-
-
-def grouper(list_to_distribute, chunk):
-    groups = []
-    for i in range(int(math.ceil(len(list_to_distribute)/chunk))):
-        group = []
-        for j in range(chunk):
-            try:
-                group.append(list_to_distribute[j+(i*chunk)])
-            except IndexError:
-                pass
-        groups.append(group)
-    groups = [[groups[i], str(i)] for i in range(len(groups))]
-    return groups
-
-
-def frames(dcd, top, maxframes):
-    maxframes = math.ceil(maxframes/len(dcd))
-    for name in dcd:
-        for i in range(maxframes):
-            frame = md.load_dcd(name, top=top, stride=None, atom_indices=None, frame=i)
-            yield frame
-
-
 def run_fep(parameters, sim, system, pdb, n_steps, n_iterations, chunk, all_mutants):
     device = parameters[1]
     parameters = parameters[0]
@@ -237,6 +208,7 @@ def run_fep(parameters, sim, system, pdb, n_steps, n_iterations, chunk, all_muta
     context.setPositions(pdb.positions)
     logger.debug('Minimizing..')
     mm.LocalEnergyMinimizer.minimize(context)
+    #sim.temp
     temperature = 300 * unit.kelvin
     context.setVelocitiesToTemperature(temperature)
     total_states = len(all_mutants)
@@ -312,4 +284,33 @@ def get_free_energy(mutant_energy, wildtype_energy):
     for ligand in ans:
         free_energy.append(-kT * np.log(ligand) * 0.239) # Unit: kcal/mol
     return free_energy
+
+
+def get_ligand_atoms(ligand_name, snapshot):
+    ligand_atoms = snapshot.topology.select('resname {}'.format(ligand_name))
+    if len(ligand_atoms) == 0:
+        raise ValueError('Did not find ligand in supplied topology by name {}'.format(ligand_name))
+    return ligand_atoms
+
+
+def grouper(list_to_distribute, chunk):
+    groups = []
+    for i in range(int(math.ceil(len(list_to_distribute)/chunk))):
+        group = []
+        for j in range(chunk):
+            try:
+                group.append(list_to_distribute[j+(i*chunk)])
+            except IndexError:
+                pass
+        groups.append(group)
+    groups = [[groups[i], str(i)] for i in range(len(groups))]
+    return groups
+
+
+def frames(dcd, top, maxframes):
+    maxframes = math.ceil(maxframes/len(dcd))
+    for name in dcd:
+        for i in range(maxframes):
+            frame = md.load_dcd(name, top=top, stride=None, atom_indices=None, frame=i)
+            yield frame
 

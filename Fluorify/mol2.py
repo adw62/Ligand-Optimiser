@@ -216,13 +216,13 @@ class Mol2(object):
 
 
 class MutatedLigand(object):
-    def __init__(self, file_path, mol_name, net_charge):
+    def __init__(self, file_path, mol_name, net_charge, gaff=2):
         """A class for extracting parameters from a mutated ligand in a mol2 file.
         file_path: location of ligand file
         mol_name: name of mol file
         """
         file_name = mol_name+'.mol2'
-        run_ante(file_path, file_name, mol_name, net_charge)
+        run_ante(file_path, file_name, mol_name, net_charge, gaff)
         MutatedLigand.create_system(self, file_path, mol_name)
 
     def create_system(self, file_path, name):
@@ -251,11 +251,18 @@ class MutatedLigand(object):
                 ligand_parameters.append([charge, sigma, epsilon])
         return np.asarray(ligand_parameters)
 
-def run_ante(file_path, file_name, name, net_charge):
+
+def run_ante(file_path, file_name, name, net_charge, gaff):
+    if gaff == 1:
+        gaff_version='gaff'
+        leaprc='leaprc.gaff'
+    elif gaff ==2:
+        gaff_version='gaff2'
+        leaprc='leaprc.gaff2'
     if os.path.exists(file_path+name+'.prmtop'):
         logger.debug('{0} found skipping antechamber and tleap for {1}'.format(file_path+name+'.prmtop', name))
     else:
         moltool.amber.run_antechamber(molecule_name=file_path+name, input_filename=file_path+file_name,
-                                      net_charge=net_charge, gaff_version='gaff2')
+                                      net_charge=net_charge, gaff_version=gaff_version)
         moltool.amber.run_tleap(molecule_name=file_path+name, gaff_mol2_filename=file_path+name+'.gaff.mol2',
-                                frcmod_filename=file_path+name+'.frcmod', leaprc='leaprc.gaff2')
+                                frcmod_filename=file_path+name+'.frcmod', leaprc=leaprc)
