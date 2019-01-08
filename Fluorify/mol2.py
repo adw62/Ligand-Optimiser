@@ -56,11 +56,11 @@ class Mol2(object):
                 if charges is not None:
                     for charge, line in zip(charges, v):
                         line[8] = charge
-                        line = ('{0:>7} {1:<10} {2:<9} {3:<9} {4:<5} {5:<9} {6:<1} {7:<11} {8}\n'.format(*line))
+                        line = '%7s %-5s    %9s %9s %9s %-7s %2s %4s  %12s\n' % tuple(line)
                         mol2.append(line)
                 else:
                     for line in v:
-                        line = ('{0:>7} {1:<10} {2:<9} {3:<9} {4:<5} {5:<9} {6:<1} {7:<11} {8}\n'.format(*line))
+                        line = '%7s %-5s    %9s %9s %9s %-7s %2s %4s  %12s\n' % tuple(line)
                         mol2.append(line)
             elif k == 'BOND':
                 for line in v:
@@ -233,23 +233,30 @@ class MutatedLigand(object):
     def get_parameters(self, atoms_to_mute=[]):
         #atoms to mute does not work if there are more than 2 sequential atoms to mute
         system = self.system
-        ligand_parameters = []
+        nonbonded_parameters = []
+        bonded_parameters = []
         for force in system.getForces():
             if isinstance(force, mm.NonbondedForce):
                 nonbonded_force = force
         for index in range(system.getNumParticles()):
             if index in atoms_to_mute:
                 charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
-                ligand_parameters.append([0.0*charge, 1.0*unit.angstrom, epsilon*0.0])
+                nonbonded_parameters.append([0.0*charge, 1.0*unit.angstrom, epsilon*0.0])
                 if index + 1 in atoms_to_mute:
-                    ligand_parameters.append([0.0*charge, 1.0*unit.angstrom, epsilon*0.0])
+                    nonbonded_parameters.append([0.0*charge, 1.0*unit.angstrom, epsilon*0.0])
                     if index + 2 in atoms_to_mute:
                         raise ValueError('Work in progress: Too many pyridinations per mutant')
-                ligand_parameters.append([charge, sigma, epsilon])
+                nonbonded_parameters.append([charge, sigma, epsilon])
             else:
                 charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
-                ligand_parameters.append([charge, sigma, epsilon])
-        return np.asarray(ligand_parameters)
+                nonbonded_parameters.append([charge, sigma, epsilon])
+        for force in system.getForces():
+            if isinstance(force, mm.HarmonicBondForce):
+                harmonic_force = force
+        for index in range(harmonic_force.getNumBonds()):
+            i, j, l, k = harmonic_force.getBondParameters(index)
+            bonded_parameters.append([i, j, l, k])
+        return [np.asarray(nonbonded_parameters), np.asarray(bonded_parameters)]
 
 
 def run_ante(file_path, file_name, name, net_charge, gaff):

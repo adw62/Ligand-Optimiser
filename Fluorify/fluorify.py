@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 e = unit.elementary_charges
 
 class Fluorify(object):
-    def __init__(self, output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name,
-                 job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu):
+    def __init__(self, output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name, job_type,
+                 auto_select, c_atom_list, h_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu, equi):
 
         self.output_folder = output_folder
         self.net_charge = net_charge
@@ -79,7 +79,7 @@ class Fluorify(object):
             for name in self.complex_sys[1]:
                 if not os.path.isfile(name):
                     self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(complex_sim_dir, complex_name,
-                                                                                    self.num_frames*2500, None)
+                                                                                    self.num_frames*2500, equi, None)
                     break
         #SOLVENT
         self.solvent_sys = []
@@ -92,7 +92,7 @@ class Fluorify(object):
             for name in self.solvent_sys[1]:
                 if not os.path.isfile(name):
                     self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(solvent_sim_dir, solvent_name,
-                                                                                    self.num_frames * 2500, None)
+                                                                                    self.num_frames*2500, equi, None)
                     break
 
         if opt:
@@ -131,6 +131,9 @@ class Fluorify(object):
             mute = mutations[i]['subtract']
             mutant_parameters.append(ligand.get_parameters(mute))
 
+        wt_nonbonded_params = wt_parameters[0]
+        mutant_nonbonded_parmas = [x[0] for x in mutant_parameters]
+
         t1 = time.time()
         logger.debug('Took {} seconds'.format(t1 - t0))
 
@@ -143,10 +146,11 @@ class Fluorify(object):
         t0 = time.time()
 
         logger.debug('Computing complex potential energies...')
-        complex_free_energy = FSim.treat_phase(self.complex_sys[0], wt_parameters, mutant_parameters,
+        #pass only nonbonded as bonded will not have an effect without recomputing dynamics.
+        complex_free_energy = FSim.treat_phase(self.complex_sys[0], wt_nonbonded_params, mutant_nonbonded_parmas,
                                                self.complex_sys[1], self.complex_sys[2], self.num_frames)
         logger.debug('Computing solvent potential energies...')
-        solvent_free_energy = FSim.treat_phase(self.solvent_sys[0], wt_parameters, mutant_parameters,
+        solvent_free_energy = FSim.treat_phase(self.solvent_sys[0], wt_nonbonded_params, mutant_nonbonded_parmas,
                                                self.solvent_sys[1], self.solvent_sys[2], self.num_frames)
 
         #RESULT
@@ -157,12 +161,10 @@ class Fluorify(object):
             for atom in replace:
                 atom_index = int(atom)-1
                 atom_names.append(self.mol2_ligand_atoms[atom_index])
-
-            logger.debug('ddG for molecule{}.mol2 with'
-                  ' {} substituted for {}'.format(str(i), atom_names, self.job_type))
             binding_free_energy = energy - solvent_free_energy[i]
             best_mutants.append([binding_free_energy, atom_names, mutant_parameters[i]])
-            logger.debug(binding_free_energy)
+            logger.debug('ddG for molecule{}.mol2 with'
+                  ' {} substituted for {} = {}'.format(str(i), atom_names, self.job_type, binding_free_energy))
         best_mutants = sorted(best_mutants)
         t1 = time.time()
         logger.debug('Took {} seconds'.format(t1 - t0))
@@ -172,16 +174,16 @@ class Fluorify(object):
         if fep:
             logger.debug('Calculating FEP for {} best mutants...'.format(x_best))
             t0 = time.time()
-
             lambdas = np.linspace(0.0, 1.0, 10)
             for x in range(x_best):
+                #passing both steric and bonded parameters here since the dynamics
+                # are recomputed here so bonded parameters will have an effect
                 complex_dg = self.complex_sys[0].run_parallel_fep(wt_parameters, best_mutants[x][2], 20000, 50, lambdas)
                 solvent_dg = self.solvent_sys[0].run_parallel_fep(wt_parameters, best_mutants[x][2], 20000, 50, lambdas)
                 ddg_fep = complex_dg - solvent_dg
                 logger.debug('Mutant {}:'.format(best_mutants[x][1]))
                 logger.debug('ddG Fluorine Scanning = {}'.format(best_mutants[x][0]))
                 logger.debug('ddG FEP = {}'.format(ddg_fep))
-
             t1 = time.time()
             logger.debug('Took {} seconds'.format(t1 - t0))
 

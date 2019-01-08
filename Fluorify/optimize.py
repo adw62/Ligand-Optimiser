@@ -21,7 +21,8 @@ class Optimize(object):
         self.steps = steps
         self.output_folder = output_folder
         #TODO add VDW
-        wt_parameters = [x[0]/e for x in wt_ligand.get_parameters()]
+        wt_parameters = [x[0] for x in wt_ligand.get_parameters()]
+        wt_parameters = [x[0]/e for x in wt_parameters]
         self.net_charge = sum(wt_parameters)
         self.wt_parameters = [[x] for x in wt_parameters]
         Optimize.optimize(self, name)
@@ -31,8 +32,10 @@ class Optimize(object):
         """
         if name == 'scipy':
             opt_charges, ddg_fs = Optimize.scipy_opt(self)
+            #check print
+            logger.debug('Original charges: {}'.format([x[0] for x in self.wt_parameters]))
+            logger.debug('Optimized charges: {}'.format(opt_charges))
             opt_charges = [[x] for x in opt_charges]
-            logger.debug(opt_charges)
             fep = True
             lambdas = np.linspace(0.0, 1.0, 10)
             if fep:

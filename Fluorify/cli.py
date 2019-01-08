@@ -18,7 +18,7 @@ FLUORIFY
 Usage:
   Fluorify [--output_folder=STRING] [--mol_name=STRING] [--ligand_name=STRING] [--complex_name=STRING] 
            [--solvent_name=STRING] [--yaml_path=STRING] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT]
-           [--net_charge=INT] [--gaff_ver=INT] [--auto_select=STRING] [--charge_only=BOOL] [--optimize=BOOL] [--num_gpu=INT] [--job_type=STRING]...
+           [--net_charge=INT] [--gaff_ver=INT] [--equi=INT] [--auto_select=STRING] [--charge_only=BOOL] [--optimize=BOOL] [--num_gpu=INT] [--job_type=STRING]...
 """
 
 
@@ -55,18 +55,6 @@ def main(argv=None):
 
     msg = 'No {0} specified using default {1}'
 
-    if args['--mol_name']:
-        mol_name = args['--mol_name']
-    else:
-        mol_name = 'ligand'
-        logger.debug(msg.format('mol file', mol_name + '.mol2'))
-
-    if args['--ligand_name']:
-        ligand_name = args['--ligand_name']
-    else:
-        ligand_name = 'MOL'
-        logger.debug(msg.format('ligand residue name', ligand_name))
-
     if args['--complex_name']:
         complex_name = args['--complex_name']
     else:
@@ -79,11 +67,33 @@ def main(argv=None):
         solvent_name = 'solvent'
         logger.debug(msg.format('solvent name', solvent_name))
 
+    # Run the setup pipeline.
+    if args['--yaml_path']:
+        run_automatic_pipeline(args['--yaml_path'], complex_name, solvent_name)
+
+    if args['--mol_name']:
+        mol_name = args['--mol_name']
+    else:
+        mol_name = 'ligand'
+        logger.debug(msg.format('mol file', mol_name + '.mol2'))
+
+    if args['--ligand_name']:
+        ligand_name = args['--ligand_name']
+    else:
+        ligand_name = 'MOL'
+        logger.debug(msg.format('ligand residue name', ligand_name))
+
     if args['--num_frames']:
         num_frames = int(args['--num_frames'])
     else:
         num_frames = 10000
         logger.debug(msg.format('number of frames', num_frames))
+
+    if args['--equi']:
+        equi = int(args['--equi'])
+    else:
+        equi = 250000
+        logger.debug(msg.format('Number of equlibriation steps', equi))
 
     if args['--net_charge']:
         net_charge = int(args['--net_charge'])
@@ -97,7 +107,7 @@ def main(argv=None):
             raise ValueError('Can only use gaff ver. 1 or 2')
     else:
         gaff_ver = 2
-        logger.debug(msg.format('gaff version', net_charge))
+        logger.debug(msg.format('gaff version', gaff_ver))
 
     if args['--charge_only']:
         charge_only = int(args['--charge_only'])
@@ -176,15 +186,13 @@ def main(argv=None):
         output_folder = './' + mol_name + '_' + job_type + '/'
         logger.debug(msg.format('output folder', output_folder))
 
-    # Run the setup pipeline.
-    if args['--yaml_path']:
-        run_automatic_pipeline(args['--yaml_path'], complex_name, solvent_name)
-
     if args['--num_gpu']:
         num_gpu = int(args['--num_gpu'])
     else:
         num_gpu = 1
+        logger.debug(msg.format('number of GPUs per node', num_gpu))
+
 
     Fluorify(output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name,
-         job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu)
+         job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu, equi)
 
