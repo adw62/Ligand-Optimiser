@@ -135,7 +135,7 @@ def objective(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_fr
     solvent_free_energy = FSim.treat_phase(solvent_sys[0], wt_parameters, mutant_parameters,
                                            solvent_sys[1], solvent_sys[2], num_frames)
     binding_free_energy = complex_free_energy[0] - solvent_free_energy[0]
-    return binding_free_energy
+    return binding_free_energy/unit.kilocalories_per_mole
 
 
 def gradient(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_frames):
@@ -156,7 +156,7 @@ def gradient(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_fra
                                            solvent_sys[1], solvent_sys[2], num_frames)
     for sol, com in zip(solvent_free_energy, complex_free_energy):
         free_energy = com - sol
-        binding_free_energy.append(free_energy)
+        binding_free_energy.append(free_energy/unit.kilocalories_per_mole)
     return binding_free_energy
 
 
