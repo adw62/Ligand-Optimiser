@@ -98,7 +98,7 @@ class Fluorify(object):
         if opt:
             steps = 12
             name = 'scipy'
-            Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, name, steps)
+            Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, equi, name, steps)
         else:
             Fluorify.scanning(self, wt_ligand, auto_select, c_atom_list, h_atom_list)
 

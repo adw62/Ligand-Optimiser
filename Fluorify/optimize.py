@@ -13,15 +13,16 @@ logger = logging.getLogger(__name__)
 e = unit.elementary_charges
 
 class Optimize(object):
-    def __init__(self, wt_ligand, complex_sys, solvent_sys, output_folder, num_frames, name, steps):
+    def __init__(self, wt_ligand, complex_sys, solvent_sys, output_folder, num_frames, equi, name, steps):
 
         self.complex_sys = complex_sys
         self.solvent_sys = solvent_sys
         self.num_frames = num_frames
+        self.equi = equi
         self.steps = steps
         self.output_folder = output_folder
         #TODO add VDW
-        wt_parameters = [x[0] for x in wt_ligand.get_parameters()]
+        wt_parameters = wt_ligand.get_parameters()[0]
         wt_parameters = [x[0]/e for x in wt_parameters]
         self.net_charge = sum(wt_parameters)
         self.wt_parameters = [[x] for x in wt_parameters]
@@ -62,9 +63,9 @@ class Optimize(object):
 
             #run new dynamics with updated charges
             self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex_step'+str(step),
-                                                                            self.num_frames*2500, charges)
+                                                                            self.num_frames*2500, self.equi, charges)
             self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent_step'+str(step),
-                                                                            self.num_frames*2500, charges)
+                                                                            self.num_frames*2500, self.equi, charges)
             prev_charges = [x[0] for x in prev_charges]
             logger.debug('Computing reverse leg of accepted step...')
             reverse_ddg = -1*objective(prev_charges, charges, self.complex_sys, self.solvent_sys, self.num_frames)
