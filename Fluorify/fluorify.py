@@ -51,10 +51,9 @@ class Fluorify(object):
             raise ValueError('Could not load molecule {}'.format(self.input_folder + mol_file))
 
         # Check ligand atom order is consistent across input topologies.
-        mol2_ligand_atoms = get_atom_list(input_folder + mol_file, ligand_name)
-        self.wt_system_size = len(mol2_ligand_atoms)
-        complex_ligand_atoms = get_atom_list(complex_sim_dir + complex_name + '.pdb', ligand_name)
-        solvent_ligand_atoms = get_atom_list(solvent_sim_dir + solvent_name + '.pdb', ligand_name)
+        input_files = [input_folder + mol_file, complex_sim_dir + complex_name + '.pdb',
+                       solvent_sim_dir + solvent_name + '.pdb']
+        mol2_ligand_atoms, complex_ligand_atoms, solvent_ligand_atoms = get_atom_list(input_files, ligand_name)
         if mol2_ligand_atoms != complex_ligand_atoms:
             raise ValueError('Topology of ligand not matched across input files.'
                              'Charges will not be applied where expected')
@@ -62,7 +61,8 @@ class Fluorify(object):
             raise ValueError('Topology of ligand not matched across input files.'
                              'Charges will not be applied where expected')
         self.mol2_ligand_atoms = mol2_ligand_atoms
-
+        input_files = input_files[1:3]
+        self.complex_offset, self.solvent_offset = get_ligand_offset(input_files, mol2_ligand_atoms, ligand_name)
         logger.debug('Parametrize wild type ligand...')
         wt_ligand = MutatedLigand(file_path=self.output_folder, mol_name=mol_name,
                                   net_charge=self.net_charge, gaff=self.gaff_ver)
@@ -125,6 +125,16 @@ class Fluorify(object):
             mutated_ligands.append(MutatedLigand(file_path=self.output_folder, mol_name=mol_name,
                                                  net_charge=self.net_charge, gaff=self.gaff_ver))
 
+        bonds_to_modify = []
+        tmp = []
+        for mutant in mutations:
+            for atom in mutant['replace']:
+                atom = int(atom-1)
+                if 'H' in self.mol2_ligand_atoms[atom]:
+                    tmp.append(self.mol2_ligand_atoms[atom])
+            bonds_to_modify.append(self.mol2_ligand_atoms[atom])
+        del tmp
+
         wt_parameters = wt_ligand.get_parameters()
         mutant_parameters = []
         for i, ligand in enumerate(mutated_ligands):
@@ -174,12 +184,14 @@ class Fluorify(object):
         if fep:
             logger.debug('Calculating FEP for {} best mutants...'.format(x_best))
             t0 = time.time()
-            lambdas = np.linspace(0.0, 1.0, 10)
+            lambdas = np.linspace(0.0, 1.0, 3)
             for x in range(x_best):
                 #passing both steric and bonded parameters here since the dynamics
                 # are recomputed here so bonded parameters will have an effect
-                complex_dg = self.complex_sys[0].run_parallel_fep(wt_parameters, best_mutants[x][2], 20000, 50, lambdas)
-                solvent_dg = self.solvent_sys[0].run_parallel_fep(wt_parameters, best_mutants[x][2], 20000, 50, lambdas)
+                complex_dg = self.complex_sys[0].run_parallel_fep(wt_parameters, best_mutants[x][2],
+                                                                  self.complex_offset, 200, 5, lambdas)
+                solvent_dg = self.solvent_sys[0].run_parallel_fep(wt_parameters, best_mutants[x][2],
+                                                                  self.solvent_offset, 200, 5, lambdas)
                 ddg_fep = complex_dg - solvent_dg
                 logger.debug('Mutant {}:'.format(best_mutants[x][1]))
                 logger.debug('ddG Fluorine Scanning = {}'.format(best_mutants[x][0]))
@@ -427,12 +439,27 @@ def get_single_neighbour_carbons(mol, modified_atom_type, carbon_type=None):
     return carbons, bonded_h
 
 
-def get_atom_list(file, resname):
-    atoms = []
-    traj = md.load(file)
-    top = traj.topology
-    mol = top.select('resname '+resname)
-    for idx in mol:
-        atoms.append(str(top.atom(idx)).split('-')[1])
-    return atoms
+def get_ligand_offset(input_files, mol2_ligand_atoms, ligand_name):
+    """
+    almost certain bond will be inconsistent between inputs need to map bonds between inputs
+    :return:
+    """
+    offset = []
+    for file in input_files:
+        snapshot = md.load(file)
+        offset.append(snapshot.topology.select('resname {} and name {}'.format(ligand_name, mol2_ligand_atoms[0])))
+    return tuple(offset)
+
+
+def get_atom_list(input_files, resname):
+    atom_lists = []
+    for file in input_files:
+        atoms = []
+        traj = md.load(file)
+        top = traj.topology
+        mol = top.select('resname '+resname)
+        for idx in mol:
+            atoms.append(str(top.atom(idx)).split('-')[1])
+        atom_lists.append(atoms)
+    return tuple(atom_lists)
 

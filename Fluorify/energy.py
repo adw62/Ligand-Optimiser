@@ -39,13 +39,15 @@ class FSim(object):
         kcal = 4.1868 * unit.kilojoules_per_mole
         self.kTtokcal = self.kT/kcal * unit.kilocalories_per_mole
         #Create system from input files
-        sim_dir = input_folder + sim_name + '/'
-        snapshot = md.load(sim_dir + sim_name + '.pdb')
-        self.pdb = mm.app.pdbfile.PDBFile(sim_dir + sim_name + '.pdb')
-        parameters_file_path = sim_dir + sim_name + '.prmtop'
+        self.sim_dir = input_folder + sim_name + '/'
+        self.sim_name = sim_name
+        snapshot = md.load(self.sim_dir + self.sim_name + '.pdb')
+        self.pdb = mm.app.pdbfile.PDBFile(self.sim_dir + sim_name + '.pdb')
+        parameters_file_path = self.sim_dir + self.sim_name + '.prmtop'
         self.parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
         system = self.parameters_file.createSystem(nonbondedMethod=app.PME, nonbondedCutoff=1.0*unit.nanometers,
                                               constraints=app.HBonds, rigidWater=True, ewaldErrorTolerance=0.0005)
+
 
         for force_index, force in enumerate(system.getForces()):
             if isinstance(force, mm.NonbondedForce):
@@ -55,38 +57,62 @@ class FSim(object):
                 self.harmonic_index = force_index
             force.setForceGroup(force_index)
 
-        self.wt_system = system
-        self.ligand_atoms, self.bond_list = get_ligand_info(ligand_name, snapshot, bond_force)
 
-    def run_parallel_fep(self, wt_parameters, mutant_parameters, n_steps, n_iterations, lambdas):
-        #TODO add bond lenght change
+        self.add_all_virtuals(system, snapshot, ligand_name)
+        self.wt_system = system
+        self.ligand_atoms, self.bond_list, self.constraint_list = get_ligand_info(ligand_name,
+                                                                                  snapshot, bond_force, system)
+
+    def add_all_virtuals(self, system, snapshot, ligand_name):
+        import time
+        bond_list = []
+        carbons = list(snapshot.topology.select('element C and resname {}'.format(ligand_name)))
+        hydrogens = list(snapshot.topology.select('element H and resname {}'.format(ligand_name)))
+        for index in range(system.getNumConstraints()):
+            i, j, r = system.getConstraintParameters(index)
+            if i in carbons and j in hydrogens:
+                bond_list.append([i, j])
+            if j in carbons and i in hydrogens:
+                bond_list.append([j, i])
+
+        names = ['C', 'H']
+        for bond in bond_list:
+            for atom, name in zip(bond, names):
+                print(name)
+                print('x: %s\ty: %s\tz: %s' % tuple(snapshot.xyz[0, atom,:]))
+
+    def run_parallel_fep(self, wt_parameters, mutant_parameters, offset, n_steps, n_iterations, lambdas):
         wt_nonbonded = wt_parameters[0]
         mutant_nonbonded = mutant_parameters[0]
         wt_bonded = wt_parameters[1]
         mutant_bonded = mutant_parameters[1]
 
+        wt_bonded, mutant_bonded = self.reorder_mutant_bonds(wt_bonded, mutant_bonded, offset)
+
         logger.debug('Computing FEP for {}...'.format(self.name))
-        mutant_systems = []
         nonbonded_mutant_systems = []
         bonded_mutant_systems = []
-        nstates = len(lambdas)
+
+
         if self.charge_only:
+            #nonbonded
             param_diff = [[x[0]-y[0]] for x, y in zip(wt_nonbonded, mutant_nonbonded)]
             for lam in lambdas:
                 nonbonded_mutant_systems.append([[-x[0]*lam+y[0]] for x, y in zip(param_diff, wt_nonbonded)])
         else:
+            #nonbonded
             param_diff = [[x[0]-y[0], x[1]-y[1], x[2]-y[2]] for x, y in zip(wt_nonbonded, mutant_nonbonded)]
             for lam in lambdas:
                 nonbonded_mutant_systems.append([[-x[0]*lam+y[0], -x[1]*lam+y[1], -x[2]*lam+y[2]]
                                        for x, y in zip(param_diff, wt_nonbonded)])
-        """
-            param_diff = [[x[2]-y[2], x[3]-y[3]] for x, y in zip(wt_bonded, mutant_bonded)]
-            for lam in lambdas:
-                bonded_mutant_systems.append([[y[0], y[1], -x[0]*lam+y[2], -x[1]*lam+y[3]] for x, y in zip(param_diff, wt_bonded)])
-        mutant_systems = [[x, y] for x, y in zip(nonbonded_mutant_systems, bonded_mutant_systems)]
-        """
+        #bonds
+        param_diff = [[x[3]-y[3], x[4]-y[4]] for x, y in zip(wt_bonded, mutant_bonded)]
+        for lam in lambdas:
+            bonded_mutant_systems.append([[y[0], y[1], y[2], -x[0]*lam+y[3], -x[1]*lam+y[4]]
+                                          for x, y in zip(param_diff, wt_bonded)])
 
-        mutant_systems = nonbonded_mutant_systems
+        mutant_systems = [[x, y] for x, y in zip(nonbonded_mutant_systems, bonded_mutant_systems)]
+        nstates = len(mutant_systems)
         chunk = math.ceil(len(mutant_systems) / self.num_gpu)
         groups = grouper(mutant_systems, chunk)
         pool = Pool(processes=self.num_gpu)
@@ -102,7 +128,31 @@ class FSim(object):
         pool.close()
         pool.join()
         pool.terminate()
+        ddg = FSim.gather_dg(self, u_kln, nstates)
 
+        return ddg
+
+    def reorder_mutant_bonds(self, wt_bond, mutant_bond, offset):
+        """
+        reorders harmonic bonds so they match system and removes harmonic bonds associated with any transformations
+        from hydrogen to another atom as these bonds are represented as constraints in the system and applying harmonic
+        parameters to these will not work.
+        :param wt_bond: harmonic parameters of wt system
+        :param mutant_bond: harmonic parameters of mutant system
+        :param offset: offset in atom indexing between input systems
+        :return: updated bond lists
+        """
+        new_bonds = []
+        for bonds in [wt_bond, mutant_bond]:
+            tmp = []
+            for bond_i in self.bond_list:
+                for bond_j in bonds:
+                    if bond_i[1]-offset == bond_j[1] and bond_i[2]-offset == bond_j[2]:
+                        tmp.append([bond_i[0], bond_i[1], bond_i[2], bond_j[3], bond_j[4]])
+            new_bonds.append(tmp)
+        return tuple(new_bonds)
+
+    def gather_dg(self, u_kln, nstates):
         u_kln = np.vstack(u_kln)
         # Subsample data to extract uncorrelated equilibrium timeseries
         N_k = np.zeros([nstates], np.int32)  # number of uncorrelated samples
@@ -117,10 +167,12 @@ class FSim(object):
         logger.debug("Number of uncorrelated samples per state: {}".format(N_k))
         logger.debug("Relative free energy change for {0} = {1} +- {2}"
               .format(self.name, DeltaF_ij[0, nstates - 1]*self.kTtokcal, dDeltaF_ij[0, nstates - 1]*self.kTtokcal))
+
         return DeltaF_ij[0, nstates - 1]*self.kTtokcal
 
     def run_parallel_dynamics(self, output_folder, name, n_steps, equi, mutant_parameters):
         system = copy.deepcopy(self.wt_system)
+
         if mutant_parameters is not None:
             non_bonded_force = system.getForce(self.nonbonded_index)
             self.apply_nonbonded_parameters(non_bonded_force, mutant_parameters)
@@ -155,13 +207,13 @@ class FSim(object):
         phase_free_energy = FSim.get_free_energy(self, mutant_energy, wildtype_energy[0])
         return phase_free_energy
 
+    def apply_constraint_parameters(self, system, mutant_parameters):
+        for constraint in mutant_parameters:
+            system.setConstraintParameters(*constraint)
+
     def apply_bonded_parameters(self, force, mutant_parameters):
-        for i, atom in enumerate(self.bond_list):
-            index, particle1, particle2 = atom[0], atom[1], atom[2]
-            print(index, particle1, particle2,
-                  mutant_parameters[i][2], mutant_parameters[i][3])
-            force.setBondParameters(index, particle1, particle2,
-                                    mutant_parameters[i][2], mutant_parameters[i][3])
+        for bond in mutant_parameters:
+            force.setBondParameters(*bond)
 
     def apply_nonbonded_parameters(self, force, mutant_parameters):
         for i, atom_idx in enumerate(self.ligand_atoms):
@@ -236,8 +288,6 @@ def mutant_energy(parameters, sim, dcd, top, num_frames, chunk, total_mut, wt):
 def run_fep(parameters, sim, system, pdb, n_steps, n_iterations, chunk, all_mutants):
     device = parameters[1]
     parameters = parameters[0]
-    nonbonded_index = sim.nonbonded_index
-    harmonic_index = sim.harmonic_index
     context, integrator = sim.build_context(system, device)
     context.setPositions(pdb.positions)
     logger.debug('Minimizing...')
@@ -247,30 +297,26 @@ def run_fep(parameters, sim, system, pdb, n_steps, n_iterations, chunk, all_muta
     total_states = len(all_mutants)
     nstates = len(parameters)
     u_kln = np.zeros([nstates, total_states, n_iterations], np.float64)
-    nonbonded_force = system.getForce(nonbonded_index)
-    bonded_force = system.getForce(harmonic_index)
+    nonbonded_force = system.getForce(sim.nonbonded_index)
+    bonded_force = system.getForce(sim.harmonic_index)
     for k, local_mutant in enumerate(parameters):
         window = ((k+1)+(chunk*int(device)))
         logger.debug('Computing potentials for FEP window {0}/{1} on GPU {2}'.format(window, total_states, device))
         for iteration in range(n_iterations):
-            sim.apply_nonbonded_parameters(nonbonded_force, local_mutant)
+            sim.apply_nonbonded_parameters(nonbonded_force, local_mutant[0])
             nonbonded_force.updateParametersInContext(context)
-            """
-            sim.apply_bonded_parameters(bonded_force, local_mutant)
+            sim.apply_bonded_parameters(bonded_force, local_mutant[1])
             bonded_force.updateParametersInContext(context)
-            """
             # Run some dynamics
             integrator.step(n_steps)
             # Compute energies at all alchemical states
             for l, global_mutant in enumerate(all_mutants):
-                sim.apply_nonbonded_parameters(nonbonded_force, global_mutant)
+                sim.apply_nonbonded_parameters(nonbonded_force, global_mutant[0])
                 nonbonded_force.updateParametersInContext(context)
-                """
-                sim.apply_bonded_parameters(bonded_force, global_mutant)
+                sim.apply_bonded_parameters(bonded_force, global_mutant[1])
                 bonded_force.updateParametersInContext(context)
-                """
                 u_kln[k, l, iteration] = context.getState(getEnergy=True,
-                        groups={nonbonded_index, harmonic_index}).getPotentialEnergy() / sim.kT
+                        groups={sim.nonbonded_index, sim.harmonic_index}).getPotentialEnergy() / sim.kT
     return u_kln
 
 
@@ -314,18 +360,21 @@ def run_dynamics(dcd_name, system, pdb, n_steps, equi, temperature, friction, ti
     logger.debug('Done!')
 
 
-def get_ligand_info(ligand_name, snapshot, force):
+def get_ligand_info(ligand_name, snapshot, force, system):
     ligand_atoms = snapshot.topology.select('resname {}'.format(ligand_name))
     if len(ligand_atoms) == 0:
         raise ValueError('Did not find ligand in supplied topology by name {}'.format(ligand_name))
-    #Seems as though only a subset of bonds appear in harmonic force of complex and solvent systems
-    #when compared to the system of just the ligand. In a1 example this gives 13 vs 29 bonds ???
     bond_list = list()
     for bond_index in range(force.getNumBonds()):
-        particle1, particle2, _, __ = force.getBondParameters(bond_index)
+        particle1, particle2, r, k = force.getBondParameters(bond_index)
         if set([particle1, particle2]).intersection(ligand_atoms):
-            bond_list.append([bond_index, particle1, particle2])
-    return ligand_atoms, bond_list
+            bond_list.append([bond_index, particle1, particle2, r, k])
+    constraint_list = list()
+    for constraint_index in range(system.getNumConstraints()):
+        particle1, particle2, r = system.getConstraintParameters(constraint_index)
+        if set([particle1, particle2]).intersection(ligand_atoms):
+            constraint_list.append([constraint_index, particle1, particle2, r])
+    return ligand_atoms, bond_list, constraint_list
 
 
 def grouper(list_to_distribute, chunk):

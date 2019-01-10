@@ -156,6 +156,7 @@ def gradient(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_fra
                                            solvent_sys[1], solvent_sys[2], num_frames)
     for sol, com in zip(solvent_free_energy, complex_free_energy):
         free_energy = com - sol
+        #Divide by h !!!
         binding_free_energy.append(free_energy/unit.kilocalories_per_mole)
     return binding_free_energy
 

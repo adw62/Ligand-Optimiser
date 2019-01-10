@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
 import os
-import logging
 import openmoltools as moltool
 import simtk.openmm as mm
+from simtk.openmm import app
 import copy
 import numpy as np
 from simtk import unit
@@ -228,16 +228,20 @@ class MutatedLigand(object):
     def create_system(self, file_path, name):
         parameters_file_path = file_path + name + '.prmtop'
         parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
-        self.system = parameters_file.createSystem()
+        self.system = parameters_file.createSystem(constraints=app.HBonds)
 
     def get_parameters(self, atoms_to_mute=[]):
         #atoms to mute does not work if there are more than 2 sequential atoms to mute
         system = self.system
         nonbonded_parameters = []
         bonded_parameters = []
+        constraint_parameters = []
         for force in system.getForces():
             if isinstance(force, mm.NonbondedForce):
                 nonbonded_force = force
+            if isinstance(force, mm.HarmonicBondForce):
+                harmonic_force = force
+        #nonbonded
         for index in range(system.getNumParticles()):
             if index in atoms_to_mute:
                 charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
@@ -250,13 +254,16 @@ class MutatedLigand(object):
             else:
                 charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
                 nonbonded_parameters.append([charge, sigma, epsilon])
-        for force in system.getForces():
-            if isinstance(force, mm.HarmonicBondForce):
-                harmonic_force = force
+        #harmonic
         for index in range(harmonic_force.getNumBonds()):
-            i, j, l, k = harmonic_force.getBondParameters(index)
-            bonded_parameters.append([i, j, l, k])
-        return [np.asarray(nonbonded_parameters), np.asarray(bonded_parameters)]
+            i, j, r, k = harmonic_force.getBondParameters(index)
+            bonded_parameters.append([index, i, j, r, k])
+        #constraints
+        for index in range(system.getNumConstraints()):
+            i, j, r = system.getConstraintParameters(index)
+            constraint_parameters.append([index, i, j, r])
+
+        return [np.asarray(nonbonded_parameters), np.asarray(bonded_parameters), np.asarray(constraint_parameters)]
 
 
 def run_ante(file_path, file_name, name, net_charge, gaff):
