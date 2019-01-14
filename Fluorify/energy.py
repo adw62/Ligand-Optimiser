@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 kB = 0.008314472471220214 * unit.kilojoules_per_mole/unit.kelvin
 
 class FSim(object):
-    def __init__(self, ligand_name, sim_name, input_folder, charge_only, num_gpu,
+    def __init__(self, ligand_name, sim_name, input_folder, charge_only, num_gpu, offset,
                  temperature=300*unit.kelvin, friction=0.3/unit.picosecond, timestep=2.0*unit.femtosecond):
         """ A class for creating OpenMM context from input files and calculating free energy
         change when modifying the parameters of the system in the context.
@@ -33,96 +33,153 @@ class FSim(object):
         self.friction = friction
         self.timestep = timestep
         self.num_gpu = num_gpu
+        self.offset = offset
         self.charge_only = charge_only
         self.name = sim_name
         self.kT = kB * self.temperature
         kcal = 4.1868 * unit.kilojoules_per_mole
         self.kTtokcal = self.kT/kcal * unit.kilocalories_per_mole
         #Create system from input files
-        self.sim_dir = input_folder + sim_name + '/'
-        self.sim_name = sim_name
-        snapshot = md.load(self.sim_dir + self.sim_name + '.pdb')
-        self.pdb = mm.app.pdbfile.PDBFile(self.sim_dir + sim_name + '.pdb')
-        parameters_file_path = self.sim_dir + self.sim_name + '.prmtop'
+        sim_dir = input_folder + sim_name + '/'
+        sim_name = sim_name
+        snapshot = md.load(sim_dir + sim_name + '.pdb')
+        self.input_pdb = mm.app.pdbfile.PDBFile(sim_dir + sim_name + '.pdb')
+        parameters_file_path = sim_dir + sim_name + '.prmtop'
         self.parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
         system = self.parameters_file.createSystem(nonbondedMethod=app.PME, nonbondedCutoff=1.0*unit.nanometers,
                                               constraints=app.HBonds, rigidWater=True, ewaldErrorTolerance=0.0005)
 
-
         for force_index, force in enumerate(system.getForces()):
             if isinstance(force, mm.NonbondedForce):
+                nonbonded_force = force
                 self.nonbonded_index = force_index
             if isinstance(force, mm.HarmonicBondForce):
                 bond_force = force
                 self.harmonic_index = force_index
             force.setForceGroup(force_index)
 
-
-        self.add_all_virtuals(system, snapshot, ligand_name)
-        self.wt_system = system
         self.ligand_atoms, self.bond_list, self.constraint_list = get_ligand_info(ligand_name,
                                                                                   snapshot, bond_force, system)
 
-    def add_all_virtuals(self, system, snapshot, ligand_name):
-        import time
+        self.virtual_shift = system.getNumParticles()
+        self.extended_pos, self.extended_top, self.hydrogen_order = self.add_all_virtuals(system, nonbonded_force,
+                                                                                          snapshot, ligand_name)
+        f = open(sim_dir + sim_name + '.pdb', 'w')
+        mm.app.pdbfile.PDBFile.writeFile(self.extended_top, self.extended_pos, f)
+        f.close()
+
+        self.extended_pdb = mm.app.pdbfile.PDBFile(sim_dir + sim_name + '.pdb')
+        self.wt_system = system
+
+    def get_constraint_order(self):
+        return self.hydrogen_order
+
+    def add_all_virtuals(self, system, nonbonded_force, snapshot, ligand_name):
+        pos = list(snapshot.xyz[0]*10)
+        top = self.input_pdb.topology
+
         bond_list = []
+        hydrogen_order = []
         carbons = list(snapshot.topology.select('element C and resname {}'.format(ligand_name)))
         hydrogens = list(snapshot.topology.select('element H and resname {}'.format(ligand_name)))
         for index in range(system.getNumConstraints()):
             i, j, r = system.getConstraintParameters(index)
             if i in carbons and j in hydrogens:
-                bond_list.append([i, j])
-            if j in carbons and i in hydrogens:
                 bond_list.append([j, i])
+                hydrogen_order.append(j-self.offset)
+            if j in carbons and i in hydrogens:
+                bond_list.append([i, j])
+                hydrogen_order.append(i-self.offset)
 
-        names = ['C', 'H']
-        for bond in bond_list:
-            for atom, name in zip(bond, names):
-                print(name)
-                print('x: %s\ty: %s\tz: %s' % tuple(snapshot.xyz[0, atom,:]))
+        hydrogen_order = sorted(hydrogen_order)
+        bond_list = sorted(bond_list)
+
+        #print(hydrogen_order)
+
+        element = app.element.fluorine
+        chain = top.addChain()
+        res = top.addResidue('FLU', chain)
+        for new_atom in bond_list:
+            system.addParticle(0.00)
+            #print(new_atom)
+            #print(snapshot.xyz[0, new_atom[0], :])
+            x, y, z = tuple(snapshot.xyz[0, new_atom[0], :]*10)
+            #print(x, y, z)
+            pos.extend([[x, y, z]])
+            #pos.extend([[0.0, 0.0, 0.0]])
+            nonbonded_force.addParticle(0.0, 1.0, 0.0)
+            vs = mm.TwoParticleAverageSite(new_atom[0], new_atom[1], 1.2, -0.2)
+            system.setVirtualSite(system.getNumParticles()-1, vs)
+            top.addAtom('F{}'.format(new_atom[0]), element, res)
+            exceptions = []
+            for exception_index in range(nonbonded_force.getNumExceptions()):
+                [iatom, jatom, chargeprod, sigma, epsilon] = nonbonded_force.getExceptionParameters(exception_index)
+                if jatom == new_atom[0]:
+                    exceptions.append([iatom, system.getNumParticles()-1, chargeprod, sigma, epsilon, False])
+                if iatom == new_atom[0]:
+                    exceptions.append([system.getNumParticles()-1, jatom, chargeprod, sigma, epsilon, False])
+            for exception in exceptions:
+                nonbonded_force.addException(*exception)
+            nonbonded_force.addException(system.getNumParticles()-1, new_atom[0], 0.0, 1.0, 0.0, False)
+
+        return pos, top, hydrogen_order
 
     def run_parallel_fep(self, wt_parameters, mutant_parameters, offset, n_steps, n_iterations, lambdas):
-        wt_nonbonded = wt_parameters[0]
+        wt_nonbonded = wt_parameters[0][0]
         mutant_nonbonded = mutant_parameters[0]
-        wt_bonded = wt_parameters[1]
-        mutant_bonded = mutant_parameters[1]
+        wt_ghost = wt_parameters[0][1]
+        mutant_ghost = mutant_parameters[1]
+        wt_bonded = wt_parameters[0][2]
+        mutant_bonded = mutant_parameters[2]
 
         wt_bonded, mutant_bonded = self.reorder_mutant_bonds(wt_bonded, mutant_bonded, offset)
 
         logger.debug('Computing FEP for {}...'.format(self.name))
         nonbonded_mutant_systems = []
+        ghost_mutant_systems = []
         bonded_mutant_systems = []
-
 
         if self.charge_only:
             #nonbonded
             param_diff = [[x[0]-y[0]] for x, y in zip(wt_nonbonded, mutant_nonbonded)]
             for lam in lambdas:
                 nonbonded_mutant_systems.append([[-x[0]*lam+y[0]] for x, y in zip(param_diff, wt_nonbonded)])
+            #ghost
+            param_diff = [[x[0]-y[0]] for x, y in zip(wt_ghost, mutant_ghost)]
+            for lam in lambdas:
+                ghost_mutant_systems.append([[-x[0]*lam+y[0]] for x, y in zip(param_diff, wt_ghost)])
+            mutant_systems = [[[x, y], []] for x, y in zip(nonbonded_mutant_systems, ghost_mutant_systems)]
         else:
             #nonbonded
             param_diff = [[x[0]-y[0], x[1]-y[1], x[2]-y[2]] for x, y in zip(wt_nonbonded, mutant_nonbonded)]
             for lam in lambdas:
                 nonbonded_mutant_systems.append([[-x[0]*lam+y[0], -x[1]*lam+y[1], -x[2]*lam+y[2]]
                                        for x, y in zip(param_diff, wt_nonbonded)])
-        #bonds
-        param_diff = [[x[3]-y[3], x[4]-y[4]] for x, y in zip(wt_bonded, mutant_bonded)]
-        for lam in lambdas:
-            bonded_mutant_systems.append([[y[0], y[1], y[2], -x[0]*lam+y[3], -x[1]*lam+y[4]]
-                                          for x, y in zip(param_diff, wt_bonded)])
+            #ghost
+            param_diff = [[x[0]-y[0], x[1]-y[1], x[2]-y[2]] for x, y in zip(wt_ghost, mutant_ghost)]
+            for lam in lambdas:
+                ghost_mutant_systems.append([[-x[0]*lam+y[0], -x[1]*lam+y[1], -x[2]*lam+y[2]]
+                                       for x, y in zip(param_diff, wt_ghost)])
+            #bonds
+            param_diff = [[x[3]-y[3], x[4]-y[4]] for x, y in zip(wt_bonded, mutant_bonded)]
+            for lam in lambdas:
+                bonded_mutant_systems.append([[y[0], y[1], y[2], -x[0]*lam+y[3], -x[1]*lam+y[4]]
+                                            for x, y in zip(param_diff, wt_bonded)])
 
-        mutant_systems = [[x, y] for x, y in zip(nonbonded_mutant_systems, bonded_mutant_systems)]
+            mutant_systems = [[[x, y], z] for x, y, z in zip(nonbonded_mutant_systems,
+                                                             ghost_mutant_systems, bonded_mutant_systems)]
+
         nstates = len(mutant_systems)
         chunk = math.ceil(len(mutant_systems) / self.num_gpu)
         groups = grouper(mutant_systems, chunk)
         pool = Pool(processes=self.num_gpu)
 
         system = copy.deepcopy(self.wt_system)
-        box_vectors = self.pdb.topology.getPeriodicBoxVectors()
+        box_vectors = self.input_pdb.topology.getPeriodicBoxVectors()
         system.setDefaultPeriodicBoxVectors(*box_vectors)
         system.addForce(mm.MonteCarloBarostat(1 * unit.atmospheres, self.temperature * unit.kelvin, 25))###
 
-        fep = partial(run_fep, sim=self, system=system, pdb=self.pdb,
+        fep = partial(run_fep, sim=self, system=system, pdb=self.extended_pdb,
                       n_steps=n_steps, n_iterations=n_iterations, chunk=chunk, all_mutants=mutant_systems)
         u_kln = pool.map(fep, groups)
         pool.close()
@@ -177,14 +234,14 @@ class FSim(object):
             non_bonded_force = system.getForce(self.nonbonded_index)
             self.apply_nonbonded_parameters(non_bonded_force, mutant_parameters)
 
-        box_vectors = self.pdb.topology.getPeriodicBoxVectors()
+        box_vectors = self.input_pdb.topology.getPeriodicBoxVectors()
         system.setDefaultPeriodicBoxVectors(*box_vectors)
         system.addForce(mm.MonteCarloBarostat(1 * unit.atmospheres, self.temperature * unit.kelvin, 25))###
 
         dcd_names = [output_folder+name+'_gpu'+str(i)+'.dcd' for i in range(self.num_gpu)]
         groups = grouper(dcd_names, 1)
         pool = Pool(processes=self.num_gpu)
-        run = partial(run_dynamics, system=system, pdb=self.pdb, n_steps=math.ceil(n_steps/self.num_gpu),
+        run = partial(run_dynamics, system=system, pdb=self.extended_pdb, n_steps=math.ceil(n_steps/self.num_gpu),
                       equi=equi, temperature=self.temperature, friction=self.friction, timestep=self.timestep)
         pool.map(run, groups)
         pool.close()
@@ -202,7 +259,7 @@ class FSim(object):
 
     def treat_phase(self, wt_parameters, mutant_parameters, dcd, top, num_frames, wildtype_energy=None):
         if wildtype_energy is None:
-            wildtype_energy = FSim.get_mutant_energy(self, [wt_parameters], dcd, top, num_frames, True)
+            wildtype_energy = FSim.get_mutant_energy(self, wt_parameters, dcd, top, num_frames, True)
         mutant_energy = FSim.get_mutant_energy(self, mutant_parameters, dcd, top, num_frames)
         phase_free_energy = FSim.get_free_energy(self, mutant_energy, wildtype_energy[0])
         return phase_free_energy
@@ -216,7 +273,11 @@ class FSim(object):
             force.setBondParameters(*bond)
 
     def apply_nonbonded_parameters(self, force, mutant_parameters):
+        #print(mutant_parameters)
+        ghost = mutant_parameters[1]
+        mutant_parameters = mutant_parameters[0]
         for i, atom_idx in enumerate(self.ligand_atoms):
+            #print(mutant_parameters[i])
             index = int(atom_idx)
             charge, sigma, epsilon = force.getParticleParameters(index)
             if self.charge_only:
@@ -224,6 +285,20 @@ class FSim(object):
             else:
                 force.setParticleParameters(index, mutant_parameters[i][0],
                                             mutant_parameters[i][1], mutant_parameters[i][2])
+                charge, sigma, epsilon = force.getParticleParameters(index)
+                #print(charge, sigma, epsilon)
+                #force.setParticleParameters(index, 0.0, 1.0, 0.0)
+        for i, mutant in enumerate(ghost):
+            index = i + self.virtual_shift
+
+            if self.charge_only:
+                force.setParticleParameters(index, mutant[0], sigma, epsilon)
+            else:
+                #force.setParticleParameters(index, -0.0001, 1.0, 0.0001)
+                force.setParticleParameters(index, mutant[0], mutant[1], mutant[2])
+            charge, sigma, epsilon = force.getParticleParameters(index)
+            #print(charge, sigma, epsilon)
+
 
     def get_mutant_energy(self, parameters, dcd, top, num_frames, wt=False):
         chunk = math.ceil(len(parameters)/self.num_gpu)
@@ -340,9 +415,11 @@ def run_dynamics(dcd_name, system, pdb, n_steps, equi, temperature, friction, ti
     platform = mm.Platform.getPlatformByName('CUDA')
     device = dcd_name[1]
     dcd_name = dcd_name[0][0]
-    properties = {'CudaPrecision': 'mixed', 'CudaDeviceIndex': device} #dcd_name
+    properties = {'CudaPrecision': 'mixed', 'CudaDeviceIndex': device}
     simulation = app.Simulation(pdb.topology, system, integrator, platform, properties)
     simulation.context.setPositions(pdb.positions)
+
+
 
     logger.debug('Minimizing...')
     simulation.minimizeEnergy()

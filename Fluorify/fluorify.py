@@ -12,6 +12,7 @@ import numpy as np
 import shutil
 from simtk import unit
 import logging
+import copy
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ class Fluorify(object):
         self.mol2_ligand_atoms = mol2_ligand_atoms
         input_files = input_files[1:3]
         self.complex_offset, self.solvent_offset = get_ligand_offset(input_files, mol2_ligand_atoms, ligand_name)
+
         logger.debug('Parametrize wild type ligand...')
         wt_ligand = MutatedLigand(file_path=self.output_folder, mol_name=mol_name,
                                   net_charge=self.net_charge, gaff=self.gaff_ver)
@@ -70,8 +72,8 @@ class Fluorify(object):
         logger.debug('Loading complex and solvent systems...')
         #COMPLEX
         self.complex_sys = []
-        self.complex_sys.append(FSim(ligand_name=ligand_name, sim_name=complex_name,
-                                input_folder=input_folder, charge_only=charge_only, num_gpu=num_gpu))
+        self.complex_sys.append(FSim(ligand_name=ligand_name, sim_name=complex_name, input_folder=input_folder,
+                                     charge_only=charge_only, num_gpu=num_gpu, offset=self.complex_offset))
         self.complex_sys.append([complex_sim_dir + complex_name + '.dcd'])
         self.complex_sys.append(complex_sim_dir + complex_name + '.pdb')
         if not os.path.isfile(self.complex_sys[1][0]):
@@ -83,8 +85,8 @@ class Fluorify(object):
                     break
         #SOLVENT
         self.solvent_sys = []
-        self.solvent_sys.append(FSim(ligand_name=ligand_name, sim_name=solvent_name,
-                                input_folder=input_folder, charge_only=charge_only, num_gpu=num_gpu))
+        self.solvent_sys.append(FSim(ligand_name=ligand_name, sim_name=solvent_name, input_folder=input_folder,
+                                     charge_only=charge_only, num_gpu=num_gpu, offset=self.solvent_offset))
         self.solvent_sys.append([solvent_sim_dir + solvent_name + '.dcd'])
         self.solvent_sys.append(solvent_sim_dir + solvent_name + '.pdb')
         if not os.path.isfile(self.solvent_sys[1][0]):
@@ -125,24 +127,42 @@ class Fluorify(object):
             mutated_ligands.append(MutatedLigand(file_path=self.output_folder, mol_name=mol_name,
                                                  net_charge=self.net_charge, gaff=self.gaff_ver))
 
-        bonds_to_modify = []
-        tmp = []
-        for mutant in mutations:
-            for atom in mutant['replace']:
-                atom = int(atom-1)
-                if 'H' in self.mol2_ligand_atoms[atom]:
-                    tmp.append(self.mol2_ligand_atoms[atom])
-            bonds_to_modify.append(self.mol2_ligand_atoms[atom])
-        del tmp
-
         wt_parameters = wt_ligand.get_parameters()
         mutant_parameters = []
         for i, ligand in enumerate(mutated_ligands):
             mute = mutations[i]['subtract']
             mutant_parameters.append(ligand.get_parameters(mute))
 
-        wt_nonbonded_params = wt_parameters[0]
+        wt_nonbonded_params = [[x for x in wt_parameters[0]]]
         mutant_nonbonded_parmas = [x[0] for x in mutant_parameters]
+
+        wt_bonded = [[x for x in wt_parameters[1]]]
+        mutant_bonded_parmas = [x[1] for x in mutant_parameters]
+
+        complex_ghost = self.complex_sys[0].get_constraint_order()
+        solvent_ghost = self.solvent_sys[0].get_constraint_order()
+        if complex_ghost != solvent_ghost:
+            raise ValueError('Ghost topologies are not matched across inputs')
+
+        # Build ghosts
+        wt_ghosts = [[0.0*e, 0.26*unit.nanometer, 0.0*unit.kilojoules_per_mole] for i in range(len(complex_ghost))]
+        wt_ghosts = [copy.deepcopy(wt_ghosts) for i in range(len(mutant_nonbonded_parmas))]
+        mutant_ghosts = copy.deepcopy(wt_ghosts)
+
+        # Build ghost mutants
+        for param, mutant, ghost in zip(mutant_nonbonded_parmas, mutations, mutant_ghosts):
+            atom_idxs = mutant['replace']
+            for atom in atom_idxs:
+                atom = int(atom-1)
+                print(atom)
+                transfer_params = copy.deepcopy(list(param[atom]))
+                print(transfer_params)
+                param[atom] = [0.0*e, 0.26*unit.nanometer, 0.0*unit.kilojoules_per_mole]
+                transfer_index = complex_ghost.index(atom)
+                ghost[transfer_index] = transfer_params
+
+        mutant_parameters = [[x, y, z] for x, y, z in zip(mutant_nonbonded_parmas, mutant_ghosts, mutant_bonded_parmas)]
+        wt_parameters = [[x, y, z] for x, y, z in zip(wt_nonbonded_params, wt_ghosts, wt_bonded)]
 
         t1 = time.time()
         logger.debug('Took {} seconds'.format(t1 - t0))
@@ -156,11 +176,10 @@ class Fluorify(object):
         t0 = time.time()
 
         logger.debug('Computing complex potential energies...')
-        #pass only nonbonded as bonded will not have an effect without recomputing dynamics.
-        complex_free_energy = FSim.treat_phase(self.complex_sys[0], wt_nonbonded_params, mutant_nonbonded_parmas,
+        complex_free_energy = FSim.treat_phase(self.complex_sys[0], wt_parameters, mutant_parameters,
                                                self.complex_sys[1], self.complex_sys[2], self.num_frames)
         logger.debug('Computing solvent potential energies...')
-        solvent_free_energy = FSim.treat_phase(self.solvent_sys[0], wt_nonbonded_params, mutant_nonbonded_parmas,
+        solvent_free_energy = FSim.treat_phase(self.solvent_sys[0], wt_parameters, mutant_parameters,
                                                self.solvent_sys[1], self.solvent_sys[2], self.num_frames)
 
         #RESULT
