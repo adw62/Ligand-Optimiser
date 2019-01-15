@@ -50,6 +50,7 @@ class FSim(object):
         system = self.parameters_file.createSystem(nonbondedMethod=app.PME, nonbondedCutoff=1.0*unit.nanometers,
                                               constraints=app.HBonds, rigidWater=True, ewaldErrorTolerance=0.0005)
 
+        #seperate forces into sperate groups
         for force_index, force in enumerate(system.getForces()):
             if isinstance(force, mm.NonbondedForce):
                 nonbonded_force = force
@@ -60,14 +61,15 @@ class FSim(object):
             force.setForceGroup(force_index)
 
         self.ligand_atoms, self.bond_list, self.constraint_list = get_ligand_info(ligand_name,
-                                                                                  snapshot, bond_force, system)
-
-        self.virtual_shift = system.getNumParticles()
-        self.extended_pos, self.extended_top, self.hydrogen_order = self.add_all_virtuals(system, nonbonded_force,
-                                                                                          snapshot, ligand_name)
-        f = open(sim_dir + sim_name + '.pdb', 'w')
-        mm.app.pdbfile.PDBFile.writeFile(self.extended_top, self.extended_pos, f)
-        f.close()
+                                                                                snapshot, bond_force, system)
+        #Add dual topology for fluorination
+        if not self.opt:
+            self.virtual_shift = system.getNumParticles()
+            self.extended_pos, self.extended_top, self.hydrogen_order = self.add_all_virtuals(system, nonbonded_force,
+                                                                                              snapshot, ligand_name)
+            f = open(sim_dir + sim_name + '.pdb', 'w')
+            mm.app.pdbfile.PDBFile.writeFile(self.extended_top, self.extended_pos, f)
+            f.close()
 
         self.extended_pdb = mm.app.pdbfile.PDBFile(sim_dir + sim_name + '.pdb')
         self.wt_system = system

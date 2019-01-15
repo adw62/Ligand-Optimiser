@@ -54,7 +54,7 @@ class Optimize(object):
         charges = self.wt_parameters
         ddg = 0.0
         for step in range(self.steps):
-            max_change = 0.2
+            max_change = 0.35
             bnds = [sorted((x[0] - max_change * x[0], x[0] + max_change * x[0])) for x in charges]
             sol = minimize(objective, charges, bounds=bnds, options={'maxiter': 1}, jac=gradient,
                            args=(charges, self.complex_sys, self.solvent_sys, self.num_frames), constraints=cons)
