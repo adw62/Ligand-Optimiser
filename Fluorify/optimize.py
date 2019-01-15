@@ -40,8 +40,8 @@ class Optimize(object):
             fep = True
             lambdas = np.linspace(0.0, 1.0, 10)
             if fep:
-                complex_dg = self.complex_sys[0].run_parallel_fep(self.wt_parameters, opt_charges, 200, 5, lambdas)
-                solvent_dg = self.solvent_sys[0].run_parallel_fep(self.wt_parameters, opt_charges, 200, 5, lambdas)
+                complex_dg = self.complex_sys[0].run_parallel_fep(self.wt_parameters, opt_charges, 20000, 50, lambdas)
+                solvent_dg = self.solvent_sys[0].run_parallel_fep(self.wt_parameters, opt_charges, 20000, 50, lambdas)
                 ddg_fep = complex_dg - solvent_dg
                 logger.debug('ddG Fluorine Scanning = {}'.format(ddg_fs))
                 logger.debug('ddG FEP = {}'.format(ddg_fep))
