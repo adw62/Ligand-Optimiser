@@ -73,7 +73,7 @@ class Fluorify(object):
         #COMPLEX
         self.complex_sys = []
         self.complex_sys.append(FSim(ligand_name=ligand_name, sim_name=complex_name, input_folder=input_folder,
-                                     charge_only=charge_only, num_gpu=num_gpu, offset=self.complex_offset))
+                                     charge_only=charge_only, num_gpu=num_gpu, offset=self.complex_offset, opt=opt))
         self.complex_sys.append([complex_sim_dir + complex_name + '.dcd'])
         self.complex_sys.append(complex_sim_dir + complex_name + '.pdb')
         if not os.path.isfile(self.complex_sys[1][0]):
@@ -86,7 +86,7 @@ class Fluorify(object):
         #SOLVENT
         self.solvent_sys = []
         self.solvent_sys.append(FSim(ligand_name=ligand_name, sim_name=solvent_name, input_folder=input_folder,
-                                     charge_only=charge_only, num_gpu=num_gpu, offset=self.solvent_offset))
+                                     charge_only=charge_only, num_gpu=num_gpu, offset=self.solvent_offset, opt=opt))
         self.solvent_sys.append([solvent_sim_dir + solvent_name + '.dcd'])
         self.solvent_sys.append(solvent_sim_dir + solvent_name + '.pdb')
         if not os.path.isfile(self.solvent_sys[1][0]):
@@ -98,7 +98,7 @@ class Fluorify(object):
                     break
 
         if opt:
-            steps = 12
+            steps = 1
             name = 'scipy'
             Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, equi, name, steps)
         else:

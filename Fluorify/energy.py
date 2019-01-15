@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 kB = 0.008314472471220214 * unit.kilojoules_per_mole/unit.kelvin
 
 class FSim(object):
-    def __init__(self, ligand_name, sim_name, input_folder, charge_only, num_gpu, offset,
-                 temperature=300*unit.kelvin, friction=0.3/unit.picosecond, timestep=2.0*unit.femtosecond):
+    def __init__(self, ligand_name, sim_name, input_folder, charge_only, num_gpu, offset, opt, temperature=300*unit.kelvin,
+                 friction=0.3/unit.picosecond, timestep=2.0*unit.femtosecond):
         """ A class for creating OpenMM context from input files and calculating free energy
         change when modifying the parameters of the system in the context.
 
@@ -34,6 +34,7 @@ class FSim(object):
         self.timestep = timestep
         self.num_gpu = num_gpu
         self.offset = offset
+        self.opt = opt
         self.charge_only = charge_only
         self.name = sim_name
         self.kT = kB * self.temperature
@@ -118,50 +119,69 @@ class FSim(object):
             nonbonded_force.addException(system.getNumParticles()-1, new_atom[0], 0.0, 1.0, 0.0, False)
         return pos, top, hydrogen_order
 
-    def run_parallel_fep(self, wt_parameters, mutant_parameters, offset, n_steps, n_iterations, lambdas):
-        wt_nonbonded = wt_parameters[0][0]
-        mutant_nonbonded = mutant_parameters[0]
-        wt_ghost = wt_parameters[0][1]
-        mutant_ghost = mutant_parameters[1]
-        wt_bonded = wt_parameters[0][2]
-        mutant_bonded = mutant_parameters[2]
-
-        wt_bonded, mutant_bonded = self.reorder_mutant_bonds(wt_bonded, mutant_bonded, offset)
+    def run_parallel_fep(self, wt_parameters, mutant_parameters, n_steps, n_iterations, lambdas):
+        if self.opt:
+            wt_nonbonded = wt_parameters
+            mutant_nonbonded = mutant_parameters
+        else:
+            wt_nonbonded = wt_parameters[0][0]
+            mutant_nonbonded = mutant_parameters[0]
+            wt_ghost = wt_parameters[0][1]
+            mutant_ghost = mutant_parameters[1]
+            wt_bonded = wt_parameters[0][2]
+            mutant_bonded = mutant_parameters[2]
+            wt_bonded, mutant_bonded = self.reorder_mutant_bonds(wt_bonded, mutant_bonded)
 
         logger.debug('Computing FEP for {}...'.format(self.name))
         nonbonded_mutant_systems = []
         ghost_mutant_systems = []
         bonded_mutant_systems = []
 
+        #Build parmeters*lambda_schedule
         if self.charge_only:
-            #nonbonded
-            param_diff = [[x[0]-y[0]] for x, y in zip(wt_nonbonded, mutant_nonbonded)]
-            for lam in lambdas:
-                nonbonded_mutant_systems.append([[-x[0]*lam+y[0]] for x, y in zip(param_diff, wt_nonbonded)])
-            #ghost
-            param_diff = [[x[0]-y[0]] for x, y in zip(wt_ghost, mutant_ghost)]
-            for lam in lambdas:
-                ghost_mutant_systems.append([[-x[0]*lam+y[0]] for x, y in zip(param_diff, wt_ghost)])
-            mutant_systems = [[[x, y], []] for x, y in zip(nonbonded_mutant_systems, ghost_mutant_systems)]
+            if self.opt:
+                # nonbonded
+                param_diff = [[x[0] - y[0]] for x, y in zip(wt_nonbonded, mutant_nonbonded)]
+                for lam in lambdas:
+                    nonbonded_mutant_systems.append([[-x[0] * lam + y[0]] for x, y in zip(param_diff, wt_nonbonded)])
+                mutant_systems = [[[x, []], []] for x in nonbonded_mutant_systems]
+            else:
+                #nonbonded
+                param_diff = [[x[0]-y[0]] for x, y in zip(wt_nonbonded, mutant_nonbonded)]
+                for lam in lambdas:
+                    nonbonded_mutant_systems.append([[-x[0]*lam+y[0]] for x, y in zip(param_diff, wt_nonbonded)])
+                #ghost
+                param_diff = [[x[0]-y[0]] for x, y in zip(wt_ghost, mutant_ghost)]
+                for lam in lambdas:
+                    ghost_mutant_systems.append([[-x[0]*lam+y[0]] for x, y in zip(param_diff, wt_ghost)])
+                mutant_systems = [[[x, y], []] for x, y in zip(nonbonded_mutant_systems, ghost_mutant_systems)]
         else:
-            #nonbonded
-            param_diff = [[x[0]-y[0], x[1]-y[1], x[2]-y[2]] for x, y in zip(wt_nonbonded, mutant_nonbonded)]
-            for lam in lambdas:
-                nonbonded_mutant_systems.append([[-x[0]*lam+y[0], -x[1]*lam+y[1], -x[2]*lam+y[2]]
-                                       for x, y in zip(param_diff, wt_nonbonded)])
-            #ghost
-            param_diff = [[x[0]-y[0], x[1]-y[1], x[2]-y[2]] for x, y in zip(wt_ghost, mutant_ghost)]
-            for lam in lambdas:
-                ghost_mutant_systems.append([[-x[0]*lam+y[0], -x[1]*lam+y[1], -x[2]*lam+y[2]]
-                                       for x, y in zip(param_diff, wt_ghost)])
-            #bonds
-            param_diff = [[x[3]-y[3], x[4]-y[4]] for x, y in zip(wt_bonded, mutant_bonded)]
-            for lam in lambdas:
-                bonded_mutant_systems.append([[y[0], y[1], y[2], -x[0]*lam+y[3], -x[1]*lam+y[4]]
-                                            for x, y in zip(param_diff, wt_bonded)])
+            if self.opt:
+                #nonbonded
+                param_diff = [[x[0]-y[0], x[1]-y[1], x[2]-y[2]] for x, y in zip(wt_nonbonded, mutant_nonbonded)]
+                for lam in lambdas:
+                    nonbonded_mutant_systems.append([[-x[0]*lam+y[0], -x[1]*lam+y[1], -x[2]*lam+y[2]]
+                                           for x, y in zip(param_diff, wt_nonbonded)])
+                mutant_systems = [[[x, []], []] for x in nonbonded_mutant_systems]
+            else:
+                #nonbonded
+                param_diff = [[x[0]-y[0], x[1]-y[1], x[2]-y[2]] for x, y in zip(wt_nonbonded, mutant_nonbonded)]
+                for lam in lambdas:
+                    nonbonded_mutant_systems.append([[-x[0]*lam+y[0], -x[1]*lam+y[1], -x[2]*lam+y[2]]
+                                           for x, y in zip(param_diff, wt_nonbonded)])
+                #ghost
+                param_diff = [[x[0]-y[0], x[1]-y[1], x[2]-y[2]] for x, y in zip(wt_ghost, mutant_ghost)]
+                for lam in lambdas:
+                    ghost_mutant_systems.append([[-x[0]*lam+y[0], -x[1]*lam+y[1], -x[2]*lam+y[2]]
+                                           for x, y in zip(param_diff, wt_ghost)])
+                #bonds
+                param_diff = [[x[3]-y[3], x[4]-y[4]] for x, y in zip(wt_bonded, mutant_bonded)]
+                for lam in lambdas:
+                    bonded_mutant_systems.append([[y[0], y[1], y[2], -x[0]*lam+y[3], -x[1]*lam+y[4]]
+                                                for x, y in zip(param_diff, wt_bonded)])
 
-            mutant_systems = [[[x, y], z] for x, y, z in zip(nonbonded_mutant_systems,
-                                                             ghost_mutant_systems, bonded_mutant_systems)]
+                mutant_systems = [[[x, y], z] for x, y, z in zip(nonbonded_mutant_systems,
+                                                                 ghost_mutant_systems, bonded_mutant_systems)]
 
         nstates = len(mutant_systems)
         chunk = math.ceil(len(mutant_systems) / self.num_gpu)
@@ -183,7 +203,7 @@ class FSim(object):
 
         return ddg
 
-    def reorder_mutant_bonds(self, wt_bond, mutant_bond, offset):
+    def reorder_mutant_bonds(self, wt_bond, mutant_bond):
         """
         reorders mutant harmonic bonds so they match wt_system and removes harmonic bonds associated with any transformations
         from hydrogen to another atom as these bonds are represented as constraints in the wt_system and applying harmonic
@@ -198,7 +218,7 @@ class FSim(object):
             tmp = []
             for bond_i in self.bond_list:
                 for bond_j in bonds:
-                    if bond_i[1]-offset == bond_j[1] and bond_i[2]-offset == bond_j[2]:
+                    if bond_i[1]-self.offset == bond_j[1] and bond_i[2]-self.offset == bond_j[2]:
                         tmp.append([bond_i[0], bond_i[1], bond_i[2], bond_j[3], bond_j[4]])
             new_bonds.append(tmp)
         return tuple(new_bonds)
@@ -267,7 +287,10 @@ class FSim(object):
             force.setBondParameters(*bond)
 
     def apply_nonbonded_parameters(self, force, mutant_parameters):
-        ghost = mutant_parameters[1]
+        if self.opt:
+            ghost = []
+        else:
+            ghost = mutant_parameters[1]
         mutant_parameters = mutant_parameters[0]
         for i, atom_idx in enumerate(self.ligand_atoms):
             index = int(atom_idx)
@@ -275,6 +298,8 @@ class FSim(object):
             if self.charge_only:
                 force.setParticleParameters(index, mutant_parameters[i][0], sigma, epsilon)
             else:
+                if self.opt:
+                    raise ValueError('VDW currently not supported for optimization')
                 force.setParticleParameters(index, mutant_parameters[i][0],
                                             mutant_parameters[i][1], mutant_parameters[i][2])
                 charge, sigma, epsilon = force.getParticleParameters(index)

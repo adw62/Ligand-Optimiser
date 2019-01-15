@@ -62,10 +62,12 @@ class Optimize(object):
             charges = [[x] for x in sol.x]
 
             #run new dynamics with updated charges
+            # no bond lenght changes
+            ghost = []
             self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex_step'+str(step),
-                                                                            self.num_frames*2500, self.equi, charges)
+                                                                            self.num_frames*2500, self.equi, [charges, ghost])
             self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent_step'+str(step),
-                                                                            self.num_frames*2500, self.equi, charges)
+                                                                            self.num_frames*2500, self.equi, [charges, ghost])
             prev_charges = [x[0] for x in prev_charges]
             logger.debug('Computing reverse leg of accepted step...')
             reverse_ddg = -1*objective(prev_charges, charges, self.complex_sys, self.solvent_sys, self.num_frames)
@@ -128,11 +130,11 @@ class Optimize(object):
 
 
 def objective(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_frames):
-    mutant_parameters = [[[x] for x in mutant_parameters]]
+    mutant_parameters = [[x] for x in mutant_parameters]
     logger.debug('Computing Objective...')
-    complex_free_energy = FSim.treat_phase(complex_sys[0], wt_parameters, mutant_parameters,
+    complex_free_energy = FSim.treat_phase(complex_sys[0], [[wt_parameters]], [[mutant_parameters]],
                                            complex_sys[1], complex_sys[2], num_frames)
-    solvent_free_energy = FSim.treat_phase(solvent_sys[0], wt_parameters, mutant_parameters,
+    solvent_free_energy = FSim.treat_phase(solvent_sys[0], [[wt_parameters]], [[mutant_parameters]],
                                            solvent_sys[1], solvent_sys[2], num_frames)
     binding_free_energy = complex_free_energy[0] - solvent_free_energy[0]
     return binding_free_energy/unit.kilocalories_per_mole
@@ -143,20 +145,21 @@ def gradient(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_fra
     binding_free_energy = []
     og_mutant_parameters = mutant_parameters
     mutant_parameters = []
+    h = 1.5e-04
     for i in range(len(og_mutant_parameters)):
         mutant = copy.deepcopy(og_mutant_parameters)
-        mutant[i] = mutant[i] + 1.5e-04
+        mutant[i] = mutant[i] + h
         mutant = [[x] for x in mutant]
-        mutant_parameters.append(mutant)
+        mutant_parameters.append([mutant])
 
     logger.debug('Computing Jacobian...')
-    complex_free_energy = FSim.treat_phase(complex_sys[0], wt_parameters, mutant_parameters,
+    complex_free_energy = FSim.treat_phase(complex_sys[0], [[wt_parameters]], mutant_parameters,
                                            complex_sys[1], complex_sys[2], num_frames)
-    solvent_free_energy = FSim.treat_phase(solvent_sys[0], wt_parameters, mutant_parameters,
+    solvent_free_energy = FSim.treat_phase(solvent_sys[0], [[wt_parameters]], mutant_parameters,
                                            solvent_sys[1], solvent_sys[2], num_frames)
     for sol, com in zip(solvent_free_energy, complex_free_energy):
         free_energy = com - sol
-        #Divide by h !!!
+
         binding_free_energy.append(free_energy/unit.kilocalories_per_mole)
     return binding_free_energy
 
