@@ -40,8 +40,8 @@ class Optimize(object):
             fep = True
             lambdas = np.linspace(0.0, 1.0, 10)
             if fep:
-                complex_dg = self.complex_sys[0].run_parallel_fep(self.wt_parameters, opt_charges, 20000, 50, lambdas)
-                solvent_dg = self.solvent_sys[0].run_parallel_fep(self.wt_parameters, opt_charges, 20000, 50, lambdas)
+                complex_dg = self.complex_sys[0].run_parallel_fep(self.wt_parameters, opt_charges, 200, 5, lambdas)
+                solvent_dg = self.solvent_sys[0].run_parallel_fep(self.wt_parameters, opt_charges, 200, 5, lambdas)
                 ddg_fep = complex_dg - solvent_dg
                 logger.debug('ddG Fluorine Scanning = {}'.format(ddg_fs))
                 logger.debug('ddG FEP = {}'.format(ddg_fep))
@@ -54,7 +54,7 @@ class Optimize(object):
         charges = self.wt_parameters
         ddg = 0.0
         for step in range(self.steps):
-            max_change = 0.5
+            max_change = 0.2
             bnds = [sorted((x[0] - max_change * x[0], x[0] + max_change * x[0])) for x in charges]
             sol = minimize(objective, charges, bounds=bnds, options={'maxiter': 1}, jac=gradient,
                            args=(charges, self.complex_sys, self.solvent_sys, self.num_frames), constraints=cons)
@@ -62,12 +62,10 @@ class Optimize(object):
             charges = [[x] for x in sol.x]
 
             #run new dynamics with updated charges
-            # no bond lenght changes
-            ghost = []
             self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex_step'+str(step),
-                                                                            self.num_frames*2500, self.equi, [charges, ghost])
+                                                                            self.num_frames*2500, self.equi, [charges])
             self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent_step'+str(step),
-                                                                            self.num_frames*2500, self.equi, [charges, ghost])
+                                                                            self.num_frames*2500, self.equi, [charges])
             prev_charges = [x[0] for x in prev_charges]
             logger.debug('Computing reverse leg of accepted step...')
             reverse_ddg = -1*objective(prev_charges, charges, self.complex_sys, self.solvent_sys, self.num_frames)
@@ -159,7 +157,7 @@ def gradient(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_fra
                                            solvent_sys[1], solvent_sys[2], num_frames)
     for sol, com in zip(solvent_free_energy, complex_free_energy):
         free_energy = com - sol
-
+        free_energy = free_energy/h
         binding_free_energy.append(free_energy/unit.kilocalories_per_mole)
     return binding_free_energy
 
