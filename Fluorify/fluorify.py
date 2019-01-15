@@ -154,9 +154,7 @@ class Fluorify(object):
             atom_idxs = mutant['replace']
             for atom in atom_idxs:
                 atom = int(atom-1)
-                print(atom)
                 transfer_params = copy.deepcopy(list(param[atom]))
-                print(transfer_params)
                 param[atom] = [0.0*e, 0.26*unit.nanometer, 0.0*unit.kilojoules_per_mole]
                 transfer_index = complex_ghost.index(atom)
                 ghost[transfer_index] = transfer_params
@@ -176,6 +174,7 @@ class Fluorify(object):
         t0 = time.time()
 
         logger.debug('Computing complex potential energies...')
+        #harmonic parameters have no effect on geometery here as dynamics are pre-computed
         complex_free_energy = FSim.treat_phase(self.complex_sys[0], wt_parameters, mutant_parameters,
                                                self.complex_sys[1], self.complex_sys[2], self.num_frames)
         logger.debug('Computing solvent potential energies...')
@@ -203,14 +202,12 @@ class Fluorify(object):
         if fep:
             logger.debug('Calculating FEP for {} best mutants...'.format(x_best))
             t0 = time.time()
-            lambdas = np.linspace(0.0, 1.0, 3)
+            lambdas = np.linspace(0.0, 1.0, 10)
             for x in range(x_best):
-                #passing both steric and bonded parameters here since the dynamics
-                # are recomputed here so bonded parameters will have an effect
                 complex_dg = self.complex_sys[0].run_parallel_fep(wt_parameters, best_mutants[x][2],
-                                                                  self.complex_offset, 200, 5, lambdas)
+                                                                  self.complex_offset, 20000, 50, lambdas)
                 solvent_dg = self.solvent_sys[0].run_parallel_fep(wt_parameters, best_mutants[x][2],
-                                                                  self.solvent_offset, 200, 5, lambdas)
+                                                                  self.solvent_offset, 20000, 50, lambdas)
                 ddg_fep = complex_dg - solvent_dg
                 logger.debug('Mutant {}:'.format(best_mutants[x][1]))
                 logger.debug('ddG Fluorine Scanning = {}'.format(best_mutants[x][0]))

@@ -94,21 +94,16 @@ class FSim(object):
         hydrogen_order = sorted(hydrogen_order)
         bond_list = sorted(bond_list)
 
-        #print(hydrogen_order)
-
         element = app.element.fluorine
         chain = top.addChain()
         res = top.addResidue('FLU', chain)
+        f_weight = 0.242 #1.363/1.097 Ang
         for new_atom in bond_list:
             system.addParticle(0.00)
-            #print(new_atom)
-            #print(snapshot.xyz[0, new_atom[0], :])
             x, y, z = tuple(snapshot.xyz[0, new_atom[0], :]*10)
-            #print(x, y, z)
             pos.extend([[x, y, z]])
-            #pos.extend([[0.0, 0.0, 0.0]])
             nonbonded_force.addParticle(0.0, 1.0, 0.0)
-            vs = mm.TwoParticleAverageSite(new_atom[0], new_atom[1], 1.2, -0.2)
+            vs = mm.TwoParticleAverageSite(new_atom[0], new_atom[1], 1+f_weight, -f_weight)
             system.setVirtualSite(system.getNumParticles()-1, vs)
             top.addAtom('F{}'.format(new_atom[0]), element, res)
             exceptions = []
@@ -121,7 +116,6 @@ class FSim(object):
             for exception in exceptions:
                 nonbonded_force.addException(*exception)
             nonbonded_force.addException(system.getNumParticles()-1, new_atom[0], 0.0, 1.0, 0.0, False)
-
         return pos, top, hydrogen_order
 
     def run_parallel_fep(self, wt_parameters, mutant_parameters, offset, n_steps, n_iterations, lambdas):
@@ -191,8 +185,8 @@ class FSim(object):
 
     def reorder_mutant_bonds(self, wt_bond, mutant_bond, offset):
         """
-        reorders harmonic bonds so they match system and removes harmonic bonds associated with any transformations
-        from hydrogen to another atom as these bonds are represented as constraints in the system and applying harmonic
+        reorders mutant harmonic bonds so they match wt_system and removes harmonic bonds associated with any transformations
+        from hydrogen to another atom as these bonds are represented as constraints in the wt_system and applying harmonic
         parameters to these will not work.
         :param wt_bond: harmonic parameters of wt system
         :param mutant_bond: harmonic parameters of mutant system
@@ -273,11 +267,9 @@ class FSim(object):
             force.setBondParameters(*bond)
 
     def apply_nonbonded_parameters(self, force, mutant_parameters):
-        #print(mutant_parameters)
         ghost = mutant_parameters[1]
         mutant_parameters = mutant_parameters[0]
         for i, atom_idx in enumerate(self.ligand_atoms):
-            #print(mutant_parameters[i])
             index = int(atom_idx)
             charge, sigma, epsilon = force.getParticleParameters(index)
             if self.charge_only:
@@ -286,19 +278,13 @@ class FSim(object):
                 force.setParticleParameters(index, mutant_parameters[i][0],
                                             mutant_parameters[i][1], mutant_parameters[i][2])
                 charge, sigma, epsilon = force.getParticleParameters(index)
-                #print(charge, sigma, epsilon)
-                #force.setParticleParameters(index, 0.0, 1.0, 0.0)
         for i, mutant in enumerate(ghost):
             index = i + self.virtual_shift
-
             if self.charge_only:
                 force.setParticleParameters(index, mutant[0], sigma, epsilon)
             else:
-                #force.setParticleParameters(index, -0.0001, 1.0, 0.0001)
                 force.setParticleParameters(index, mutant[0], mutant[1], mutant[2])
             charge, sigma, epsilon = force.getParticleParameters(index)
-            #print(charge, sigma, epsilon)
-
 
     def get_mutant_energy(self, parameters, dcd, top, num_frames, wt=False):
         chunk = math.ceil(len(parameters)/self.num_gpu)
@@ -418,8 +404,6 @@ def run_dynamics(dcd_name, system, pdb, n_steps, equi, temperature, friction, ti
     properties = {'CudaPrecision': 'mixed', 'CudaDeviceIndex': device}
     simulation = app.Simulation(pdb.topology, system, integrator, platform, properties)
     simulation.context.setPositions(pdb.positions)
-
-
 
     logger.debug('Minimizing...')
     simulation.minimizeEnergy()
