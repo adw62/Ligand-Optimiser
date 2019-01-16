@@ -54,7 +54,7 @@ class Optimize(object):
         charges = self.wt_parameters
         ddg = 0.0
         for step in range(self.steps):
-            max_change = 0.35
+            max_change = 0.1
             bnds = [sorted((x[0] - max_change * x[0], x[0] + max_change * x[0])) for x in charges]
             sol = minimize(objective, charges, bounds=bnds, options={'maxiter': 1}, jac=gradient,
                            args=(charges, self.complex_sys, self.solvent_sys, self.num_frames), constraints=cons)
@@ -69,7 +69,8 @@ class Optimize(object):
             prev_charges = [x[0] for x in prev_charges]
             logger.debug('Computing reverse leg of accepted step...')
             reverse_ddg = -1*objective(prev_charges, charges, self.complex_sys, self.solvent_sys, self.num_frames)
-            if abs(sol.fun) >= 2*abs(reverse_ddg) or abs(sol.fun) <= 0.5*abs(reverse_ddg):
+            # NOT WORKING !!!
+            if abs(sol.fun) >= 1.5*abs(reverse_ddg) or abs(sol.fun) <= 0.6666*abs(reverse_ddg):
                 logger.debug('Forward {} and reverse {} are not well agreed. Need more sampling'.format(sol.fun, reverse_ddg))
             ddg += (sol.fun+reverse_ddg)/2.0
             logger.debug(sol)

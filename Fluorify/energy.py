@@ -65,7 +65,7 @@ class FSim(object):
         #Add dual topology for fluorination
         if not self.opt:
             self.virtual_shift = system.getNumParticles()
-            self.extended_pos, self.extended_top, self.hydrogen_order = self.add_all_virtuals(system, nonbonded_force,
+            self.extended_pos, self.extended_top, self.F_virt_order = self.add_all_virtuals(system, nonbonded_force,
                                                                                               snapshot, ligand_name)
             f = open(sim_dir + sim_name + '.pdb', 'w')
             mm.app.pdbfile.PDBFile.writeFile(self.extended_top, self.extended_pos, f)
@@ -74,8 +74,8 @@ class FSim(object):
         self.extended_pdb = mm.app.pdbfile.PDBFile(sim_dir + sim_name + '.pdb')
         self.wt_system = system
 
-    def get_constraint_order(self):
-        return self.hydrogen_order
+    def get_virtual_order(self):
+        return self.F_virt_order
 
     def add_all_virtuals(self, system, nonbonded_force, snapshot, ligand_name):
         pos = list(snapshot.xyz[0]*10)
@@ -108,7 +108,8 @@ class FSim(object):
             nonbonded_force.addParticle(0.0, 1.0, 0.0)
             vs = mm.TwoParticleAverageSite(new_atom[0], new_atom[1], 1+f_weight, -f_weight)
             system.setVirtualSite(system.getNumParticles()-1, vs)
-            top.addAtom('F{}'.format(new_atom[0]), element, res)
+            #If ligand is over 1000 atoms there will be repeated names
+            top.addAtom('F{}'.format(abs(new_atom[0]) % 1000), element, res)
             exceptions = []
             for exception_index in range(nonbonded_force.getNumExceptions()):
                 [iatom, jatom, chargeprod, sigma, epsilon] = nonbonded_force.getExceptionParameters(exception_index)
@@ -296,22 +297,22 @@ class FSim(object):
         mutant_parameters = mutant_parameters[0]
         for i, atom_idx in enumerate(self.ligand_atoms):
             index = int(atom_idx)
-            charge, sigma, epsilon = force.getParticleParameters(index)
             if self.charge_only:
+                charge, sigma, epsilon = force.getParticleParameters(index)
                 force.setParticleParameters(index, mutant_parameters[i][0], sigma, epsilon)
             else:
                 if self.opt:
                     raise ValueError('VDW currently not supported for optimization')
                 force.setParticleParameters(index, mutant_parameters[i][0],
                                             mutant_parameters[i][1], mutant_parameters[i][2])
-                charge, sigma, epsilon = force.getParticleParameters(index)
+
         for i, mutant in enumerate(ghost):
             index = i + self.virtual_shift
             if self.charge_only:
+                charge, sigma, epsilon = force.getParticleParameters(index)
                 force.setParticleParameters(index, mutant[0], sigma, epsilon)
             else:
                 force.setParticleParameters(index, mutant[0], mutant[1], mutant[2])
-            charge, sigma, epsilon = force.getParticleParameters(index)
 
     def get_mutant_energy(self, parameters, dcd, top, num_frames, wt=False):
         chunk = math.ceil(len(parameters)/self.num_gpu)

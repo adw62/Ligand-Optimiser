@@ -54,16 +54,16 @@ class Fluorify(object):
         # Check ligand atom order is consistent across input topologies.
         input_files = [input_folder + mol_file, complex_sim_dir + complex_name + '.pdb',
                        solvent_sim_dir + solvent_name + '.pdb']
-        mol2_ligand_atoms, complex_ligand_atoms, solvent_ligand_atoms = get_atom_list(input_files, ligand_name)
-        if mol2_ligand_atoms != complex_ligand_atoms:
+        self.mol2_ligand_atoms, complex_ligand_atoms, solvent_ligand_atoms = get_atom_list(input_files, ligand_name)
+        if self.mol2_ligand_atoms != complex_ligand_atoms:
             raise ValueError('Topology of ligand not matched across input files.'
                              'Charges will not be applied where expected')
         if complex_ligand_atoms != solvent_ligand_atoms:
             raise ValueError('Topology of ligand not matched across input files.'
                              'Charges will not be applied where expected')
-        self.mol2_ligand_atoms = mol2_ligand_atoms
+
         input_files = input_files[1:3]
-        self.complex_offset, self.solvent_offset = get_ligand_offset(input_files, mol2_ligand_atoms, ligand_name)
+        complex_offset, solvent_offset = get_ligand_offset(input_files, self.mol2_ligand_atoms, ligand_name)
 
         logger.debug('Parametrize wild type ligand...')
         wt_ligand = MutatedLigand(file_path=self.output_folder, mol_name=mol_name,
@@ -73,7 +73,7 @@ class Fluorify(object):
         #COMPLEX
         self.complex_sys = []
         self.complex_sys.append(FSim(ligand_name=ligand_name, sim_name=complex_name, input_folder=input_folder,
-                                     charge_only=charge_only, num_gpu=num_gpu, offset=self.complex_offset, opt=opt))
+                                     charge_only=charge_only, num_gpu=num_gpu, offset=complex_offset, opt=opt))
         self.complex_sys.append([complex_sim_dir + complex_name + '.dcd'])
         self.complex_sys.append(complex_sim_dir + complex_name + '.pdb')
         if not os.path.isfile(self.complex_sys[1][0]):
@@ -86,7 +86,7 @@ class Fluorify(object):
         #SOLVENT
         self.solvent_sys = []
         self.solvent_sys.append(FSim(ligand_name=ligand_name, sim_name=solvent_name, input_folder=input_folder,
-                                     charge_only=charge_only, num_gpu=num_gpu, offset=self.solvent_offset, opt=opt))
+                                     charge_only=charge_only, num_gpu=num_gpu, offset=solvent_offset, opt=opt))
         self.solvent_sys.append([solvent_sim_dir + solvent_name + '.dcd'])
         self.solvent_sys.append(solvent_sim_dir + solvent_name + '.pdb')
         if not os.path.isfile(self.solvent_sys[1][0]):
@@ -98,7 +98,7 @@ class Fluorify(object):
                     break
 
         if opt:
-            steps = 1
+            steps = 12
             name = 'scipy'
             Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, equi, name, steps)
         else:
@@ -139,8 +139,8 @@ class Fluorify(object):
         wt_bonded = [[x for x in wt_parameters[1]]]
         mutant_bonded_parmas = [x[1] for x in mutant_parameters]
 
-        complex_ghost = self.complex_sys[0].get_constraint_order()
-        solvent_ghost = self.solvent_sys[0].get_constraint_order()
+        complex_ghost = self.complex_sys[0].get_virtual_order()
+        solvent_ghost = self.solvent_sys[0].get_virtual_order()
         if complex_ghost != solvent_ghost:
             raise ValueError('Ghost topologies are not matched across inputs')
 
@@ -204,10 +204,8 @@ class Fluorify(object):
             t0 = time.time()
             lambdas = np.linspace(0.0, 1.0, 10)
             for x in range(x_best):
-                complex_dg = self.complex_sys[0].run_parallel_fep(wt_parameters, best_mutants[x][2],
-                                                                  self.complex_offset, 20000, 50, lambdas)
-                solvent_dg = self.solvent_sys[0].run_parallel_fep(wt_parameters, best_mutants[x][2],
-                                                                  self.solvent_offset, 20000, 50, lambdas)
+                complex_dg = self.complex_sys[0].run_parallel_fep(wt_parameters, best_mutants[x][2], 20000, 50, lambdas)
+                solvent_dg = self.solvent_sys[0].run_parallel_fep(wt_parameters, best_mutants[x][2], 20000, 50, lambdas)
                 ddg_fep = complex_dg - solvent_dg
                 logger.debug('Mutant {}:'.format(best_mutants[x][1]))
                 logger.debug('ddG Fluorine Scanning = {}'.format(best_mutants[x][0]))
