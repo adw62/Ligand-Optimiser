@@ -393,9 +393,9 @@ def run_fep(idxs, sim, system, pdb, n_steps, n_iterations, all_mutants):
             sim.apply_nonbonded_parameters(nonbonded_force, all_mutants[m_id][0], all_mutants[m_id][1],
                                            all_mutants[m_id][2], all_mutants[m_id][3])
             nonbonded_force.updateParametersInContext(context)
-            sim.apply_bonded_parameters(harmonic_force, all_mutants[k][4])
+            sim.apply_bonded_parameters(harmonic_force, all_mutants[m_id][4])
             harmonic_force.updateParametersInContext(context)
-            sim.apply_torsion_parameters(torsion_force, all_mutants[k][5])
+            sim.apply_torsion_parameters(torsion_force, all_mutants[m_id][5])
             torsion_force.updateParametersInContext(context)
             # Run some dynamics
             integrator.step(n_steps)
