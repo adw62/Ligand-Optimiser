@@ -153,8 +153,8 @@ class FSim(object):
                                                        opt=self.opt, charge_only=self.charge_only)
 
         nstates = len(mutant_systems)
-        chunk = math.ceil(len(mutant_systems) / self.num_gpu)
-        groups = grouper(range(len(mutant_systems)), chunk)
+        chunk = math.ceil(nstates / self.num_gpu)
+        groups = grouper(range(nstates), chunk)
         pool = Pool(processes=self.num_gpu)
 
         system = copy.deepcopy(self.wt_system)
@@ -163,7 +163,7 @@ class FSim(object):
         system.addForce(mm.MonteCarloBarostat(1 * unit.atmospheres, self.temperature * unit.kelvin, 25))###
 
         fep = partial(run_fep, sim=self, system=system, pdb=self.extended_pdb,
-                      n_steps=n_steps, n_iterations=n_iterations, chunk=chunk, all_mutants=mutant_systems)
+                      n_steps=n_steps, n_iterations=n_iterations, all_mutants=mutant_systems)
         u_kln = pool.map(fep, groups)
         pool.close()
         pool.join()
@@ -370,7 +370,7 @@ def mutant_energy(idxs, sim, dcd, top, num_frames, all_mutants):
     return mutants_systems_energies
 
 
-def run_fep(idxs, sim, system, pdb, n_steps, n_iterations, chunk, all_mutants):
+def run_fep(idxs, sim, system, pdb, n_steps, n_iterations, all_mutants):
     device = idxs[1]
     idxs = idxs[0]
     context, integrator = sim.build_context(system, device)
@@ -386,12 +386,12 @@ def run_fep(idxs, sim, system, pdb, n_steps, n_iterations, chunk, all_mutants):
     u_kln = np.zeros([nstates, total_states, n_iterations], np.float64)
     harmonic_force = system.getForce(sim.harmonic_index)
     torsion_force = system.getForce(sim.torsion_index)
-    for k in idxs:
-        #i is index of local mutant
+    for k, m_id in enumerate(idxs):
+        #m_id, id for mutant
         logger.debug('Computing potentials for FEP window {0}/{1} on GPU {2}'.format(k+1, total_states, device))
         for iteration in range(n_iterations):
-            sim.apply_nonbonded_parameters(nonbonded_force, all_mutants[k][0], all_mutants[k][1],
-                                           all_mutants[k][2], all_mutants[k][3])
+            sim.apply_nonbonded_parameters(nonbonded_force, all_mutants[m_id][0], all_mutants[m_id][1],
+                                           all_mutants[m_id][2], all_mutants[m_id][3])
             nonbonded_force.updateParametersInContext(context)
             sim.apply_bonded_parameters(harmonic_force, all_mutants[k][4])
             harmonic_force.updateParametersInContext(context)
