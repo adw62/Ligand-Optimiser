@@ -49,9 +49,8 @@ class FSim(object):
         self.input_pdb = mm.app.pdbfile.PDBFile(sim_dir + sim_name + '.pdb')
         parameters_file_path = sim_dir + sim_name + '.prmtop'
         self.parameters_file = mm.app.AmberPrmtopFile(parameters_file_path)
-        system = self.parameters_file.createSystem(nonbondedMethod=app.PME, nonbondedCutoff=1.0*unit.nanometers,
+        system = self.parameters_file.createSystem(nonbondedMethod=app.PME, nonbondedCutoff=1.1*unit.nanometers,
                                               constraints=app.HBonds, rigidWater=True, ewaldErrorTolerance=0.0005)
-
         #seperate forces into sperate groups
         for force_index, force in enumerate(system.getForces()):
             if isinstance(force, mm.NonbondedForce):
@@ -64,6 +63,10 @@ class FSim(object):
                 torsion_force = force
                 self.torsion_index = force_index
             force.setForceGroup(force_index)
+
+        #add switching function
+        nonbonded_force.setSwitchingDistance(0.9*unit.nanometers)
+        nonbonded_force.setUseSwitchingFunction(True)
 
         self.ligand_info, self.exceptions_list, self.bond_list,\
         self.torsion_list = get_ligand_info(ligand_name, snapshot, nonbonded_force, bond_force, torsion_force, system)
@@ -388,7 +391,7 @@ def run_fep(idxs, sim, system, pdb, n_steps, n_iterations, all_mutants):
     torsion_force = system.getForce(sim.torsion_index)
     for k, m_id in enumerate(idxs):
         #m_id, id for mutant
-        logger.debug('Computing potentials for FEP window {0}/{1} on GPU {2}'.format(k+1, total_states, device))
+        logger.debug('Computing potentials for FEP window {0}/{1} on GPU {2}'.format(m_id+1, total_states, device))
         for iteration in range(n_iterations):
             sim.apply_nonbonded_parameters(nonbonded_force, all_mutants[m_id][0], all_mutants[m_id][1],
                                            all_mutants[m_id][2], all_mutants[m_id][3])

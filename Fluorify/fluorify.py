@@ -152,11 +152,11 @@ class Fluorify(object):
         t0 = time.time()
 
         logger.debug('Computing solvent potential energies...')
-        solvent_free_energy = FSim.treat_phase(self.solvent_sys[0], mutant_params.solvent_params, self.solvent_sys[1],
-                                               self.solvent_sys[2], self.num_frames)
         logger.debug('Computing complex potential energies...')
         complex_free_energy = FSim.treat_phase(self.complex_sys[0], mutant_params.complex_params, self.complex_sys[1],
                                                self.complex_sys[2], self.num_frames)
+        solvent_free_energy = FSim.treat_phase(self.solvent_sys[0], mutant_params.solvent_params, self.solvent_sys[1],
+                                               self.solvent_sys[2], self.num_frames)
 
         #RESULT
         best_mutants = []
@@ -181,9 +181,9 @@ class Fluorify(object):
             t0 = time.time()
             for x in range(x_best):
                 complex_dg, complex_error = self.complex_sys[0].run_parallel_fep(mutant_params, 0, best_mutants[x][2],
-                                                                  20000, 50, 12)
+                                                                                 20000, 50, 12)
                 solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(mutant_params, 1, best_mutants[x][2],
-                                                                  20000, 50, 12)
+                                                                                 20000, 50, 12)
                 ddg_fep = complex_dg - solvent_dg
                 ddg_error = (complex_error**2+solvent_error**2)**0.5
                 logger.debug('Mutant {}:'.format(best_mutants[x][1]))
