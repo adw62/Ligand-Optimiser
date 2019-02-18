@@ -57,12 +57,11 @@ class Fluorify(object):
                        solvent_sim_dir + solvent_name + '.pdb']
         self.mol2_ligand_atoms, complex_ligand_atoms, solvent_ligand_atoms = get_atom_list(input_files, ligand_name)
         if self.mol2_ligand_atoms != complex_ligand_atoms:
-            raise ValueError('Topology of ligand not matched across input files.'
+            raise ValueError('Names and or name casing and or atom order of ligand not matched across input files.'
                              'Charges will not be applied where expected')
         if complex_ligand_atoms != solvent_ligand_atoms:
-            raise ValueError('Topology of ligand not matched across input files.'
+            raise ValueError('Names and or name casing and or atom order of ligand not matched across input files.'
                              'Charges will not be applied where expected')
-
         input_files = input_files[1:3]
         self.complex_offset, self.solvent_offset = get_ligand_offset(input_files, self.mol2_ligand_atoms, ligand_name)
         logger.debug('Parametrize wild type ligand...')
@@ -100,7 +99,8 @@ class Fluorify(object):
         if opt:
             steps = 12
             name = 'scipy'
-            Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, equi, name, steps)
+            Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, equi, name, steps,
+                     charge_only)
         else:
             Fluorify.scanning(self, wt_ligand, auto_select, c_atom_list, h_atom_list)
 
@@ -136,6 +136,32 @@ class Fluorify(object):
         #last entry of mutant is wildtype
         mutant_parameters.append(wt_parameters)
         mutations.append({'add': [], 'subtract': [], 'replace': [None]})
+
+        #TODO units and torsion
+        log_param = False
+        if log_param == True:
+            for i, (mutant, mutation) in enumerate(zip(mutant_parameters, mutations)):
+                if mutant == mutant_parameters[-1]:
+                    logger.debug('\tWILDTYPE')
+                else:
+                    logger.debug('\tMUTANT_{}: {}'.format(i, self.mol2_ligand_atoms[int(mutation['replace'][0])-1]))
+                logger.debug('\tnonbonded------------------------------------------')
+                for atom, atom_name in zip(mutant[0], self.mol2_ligand_atoms):
+                    logger.debug('\t{0}\t{1}\t{2}\t{3}'.format(atom_name, atom['data'][0], atom['data'][1], atom['data'][2]))
+                logger.debug('\tbonds----------------------------------------------')
+                for bond in mutant[2]:
+                    indexs = list(bond['id'])
+                    atom0 = self.mol2_ligand_atoms[indexs[0]]
+                    atom1 = self.mol2_ligand_atoms[indexs[1]]
+                    logger.debug('\t{0}\t{1}\t{2}\t{3}'.format(atom0, atom1, bond['data'][0], bond['data'][1]))
+                logger.debug('\ttorsions-------------------------------------------')
+                for torsion in mutant[3]:
+                    indexs = list(torsion['id'])
+                    atom0 = self.mol2_ligand_atoms[indexs[0]-1]
+                    atom1 = self.mol2_ligand_atoms[indexs[1]-1]
+                    atom2 = self.mol2_ligand_atoms[indexs[2]-1]
+                    atom3 = self.mol2_ligand_atoms[indexs[3]-1]
+                    logger.debug('\t{0}\t{1}\t{2}\t{3}\t{4}'.format(atom0, atom1, atom2, atom3, torsion['data'][0], torsion['data'][1], torsion['data'][2]))
 
         mutant_params = Mutants(mutant_parameters, mutations, self.complex_sys[0], self.solvent_sys[0])
         del mutant_parameters
@@ -440,6 +466,7 @@ def get_ligand_offset(input_files, mol2_ligand_atoms, ligand_name):
     offset = []
     for file in input_files:
         snapshot = md.load(file)
+        diff = snapshot.topology.select('resname {} and name {}'.format(ligand_name, mol2_ligand_atoms[0]))
         offset.append(snapshot.topology.select('resname {} and name {}'.format(ligand_name, mol2_ligand_atoms[0])))
     return tuple(offset)
 

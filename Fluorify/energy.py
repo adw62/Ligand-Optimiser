@@ -247,8 +247,6 @@ class FSim(object):
                 charge, sigma, epsilon = force.getParticleParameters(atom)
                 force.setParticleParameters(atom, nonbonded_params[0], sigma, epsilon)
             else:
-                if self.opt:
-                    raise ValueError('VDW currently not supported for optimization')
                 force.setParticleParameters(atom, nonbonded_params[0], nonbonded_params[1], nonbonded_params[2])
 
         for i, index in enumerate(self.ghost_ligand_info[0]):
