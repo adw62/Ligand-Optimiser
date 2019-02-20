@@ -22,13 +22,14 @@ e = unit.elementary_charges
 
 class Fluorify(object):
     def __init__(self, output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name, job_type,
-                 auto_select, c_atom_list, h_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu, equi):
+                 auto_select, c_atom_list, h_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu, num_fep, equi):
 
         self.output_folder = output_folder
         self.net_charge = net_charge
         self.job_type = job_type
         self.num_frames = num_frames
         self.gaff_ver = gaff_ver
+        self.num_fep = int(num_fep)
 
         # Prepare directories/files and read in ligand from mol2 file
         mol_file = mol_name + '.mol2'
@@ -142,25 +143,41 @@ class Fluorify(object):
         if log_param == True:
             for i, (mutant, mutation) in enumerate(zip(mutant_parameters, mutations)):
                 if mutant == mutant_parameters[-1]:
+                    mutant_atom_name = None
                     logger.debug('\tWILDTYPE')
                 else:
-                    logger.debug('\tMUTANT_{}: {}'.format(i, self.mol2_ligand_atoms[int(mutation['replace'][0])-1]))
+                    mutant_atom_name = self.mol2_ligand_atoms[int(mutation['replace'][0]) - 1]
+                    logger.debug('\tMUTANT_{}: {}'.format(i, mutant_atom_name))
                 logger.debug('\tnonbonded------------------------------------------')
                 for atom, atom_name in zip(mutant[0], self.mol2_ligand_atoms):
+                    if atom_name == mutant_atom_name:
+                        atom_name = 'F1'
                     logger.debug('\t{0}\t{1}\t{2}\t{3}'.format(atom_name, atom['data'][0], atom['data'][1], atom['data'][2]))
                 logger.debug('\tbonds----------------------------------------------')
                 for bond in mutant[2]:
                     indexs = list(bond['id'])
                     atom0 = self.mol2_ligand_atoms[indexs[0]]
                     atom1 = self.mol2_ligand_atoms[indexs[1]]
+                    if atom0 == mutant_atom_name:
+                        atom0 = 'F1'
+                    if atom1 == mutant_atom_name:
+                        atom1 = 'F1'
                     logger.debug('\t{0}\t{1}\t{2}\t{3}'.format(atom0, atom1, bond['data'][0], bond['data'][1]))
                 logger.debug('\ttorsions-------------------------------------------')
                 for torsion in mutant[3]:
                     indexs = list(torsion['id'])
-                    atom0 = self.mol2_ligand_atoms[indexs[0]-1]
-                    atom1 = self.mol2_ligand_atoms[indexs[1]-1]
-                    atom2 = self.mol2_ligand_atoms[indexs[2]-1]
-                    atom3 = self.mol2_ligand_atoms[indexs[3]-1]
+                    atom0 = self.mol2_ligand_atoms[indexs[0]]
+                    atom1 = self.mol2_ligand_atoms[indexs[1]]
+                    atom2 = self.mol2_ligand_atoms[indexs[2]]
+                    atom3 = self.mol2_ligand_atoms[indexs[3]]
+                    if atom0 == mutant_atom_name:
+                        atom0 = 'F1'
+                    if atom1 == mutant_atom_name:
+                        atom1 = 'F1'
+                    if atom2 == mutant_atom_name:
+                        atom2 = 'F1'
+                    if atom3 == mutant_atom_name:
+                        atom3 = 'F1'
                     logger.debug('\t{0}\t{1}\t{2}\t{3}\t{4}'.format(atom0, atom1, atom2, atom3, torsion['data'][0], torsion['data'][1], torsion['data'][2]))
 
         mutant_params = Mutants(mutant_parameters, mutations, self.complex_sys[0], self.solvent_sys[0])
@@ -177,10 +194,11 @@ class Fluorify(object):
         logger.debug('Calculating free energies...')
         t0 = time.time()
 
-        logger.debug('Computing solvent potential energies...')
+
         logger.debug('Computing complex potential energies...')
         complex_free_energy = FSim.treat_phase(self.complex_sys[0], mutant_params.complex_params, self.complex_sys[1],
                                                self.complex_sys[2], self.num_frames)
+        logger.debug('Computing solvent potential energies...')
         solvent_free_energy = FSim.treat_phase(self.solvent_sys[0], mutant_params.solvent_params, self.solvent_sys[1],
                                                self.solvent_sys[2], self.num_frames)
 
@@ -200,7 +218,7 @@ class Fluorify(object):
         t1 = time.time()
         logger.debug('Took {} seconds'.format(t1 - t0))
 
-        x_best = min(3, len(best_mutants))
+        x_best = min(self.num_fep, len(best_mutants))
         fep = True
         if fep:
             logger.debug('Calculating FEP for {} best mutants...'.format(x_best))

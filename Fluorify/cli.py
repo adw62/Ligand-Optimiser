@@ -18,7 +18,7 @@ FLUORIFY
 Usage:
   Fluorify [--output_folder=STRING] [--mol_name=STRING] [--ligand_name=STRING] [--complex_name=STRING] 
            [--solvent_name=STRING] [--yaml_path=STRING] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT]
-           [--net_charge=INT] [--gaff_ver=INT] [--equi=INT] [--auto_select=STRING] [--charge_only=BOOL] [--optimize=BOOL] [--num_gpu=INT] [--job_type=STRING]...
+           [--net_charge=INT] [--gaff_ver=INT] [--equi=INT] [--num_fep=INT] [--auto_select=STRING] [--charge_only=BOOL] [--optimize=BOOL] [--num_gpu=INT] [--job_type=STRING]...
 """
 
 
@@ -192,7 +192,14 @@ def main(argv=None):
         num_gpu = 1
         logger.debug(msg.format('number of GPUs per node', num_gpu))
 
+    if args['--num_fep']:
+        num_fep = args['--num_fep']
+    else:
+        num_fep = 3
+        logger.debug(msg.format('number of best mutants to calculate with full FEP', num_fep))
+
+
 
     Fluorify(output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name,
-         job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu, equi)
+         job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu, num_fep, equi)
 
