@@ -139,7 +139,7 @@ class Fluorify(object):
         mutations.append({'add': [], 'subtract': [], 'replace': [None]})
 
         #TODO units and torsion
-        log_param = False
+        log_param = True
         if log_param == True:
             for i, (mutant, mutation) in enumerate(zip(mutant_parameters, mutations)):
                 if mutant == mutant_parameters[-1]:
@@ -153,6 +153,7 @@ class Fluorify(object):
                     if atom_name == mutant_atom_name:
                         atom_name = 'F1'
                     logger.debug('\t{0}\t{1}\t{2}\t{3}'.format(atom_name, atom['data'][0], atom['data'][1], atom['data'][2]))
+        """
                 logger.debug('\tbonds----------------------------------------------')
                 for bond in mutant[2]:
                     indexs = list(bond['id'])
@@ -179,7 +180,7 @@ class Fluorify(object):
                     if atom3 == mutant_atom_name:
                         atom3 = 'F1'
                     logger.debug('\t{0}\t{1}\t{2}\t{3}\t{4}'.format(atom0, atom1, atom2, atom3, torsion['data'][0], torsion['data'][1], torsion['data'][2]))
-
+        """
         mutant_params = Mutants(mutant_parameters, mutations, self.complex_sys[0], self.solvent_sys[0])
         del mutant_parameters
 

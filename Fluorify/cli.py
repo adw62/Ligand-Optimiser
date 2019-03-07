@@ -18,7 +18,8 @@ FLUORIFY
 Usage:
   Fluorify [--output_folder=STRING] [--mol_name=STRING] [--ligand_name=STRING] [--complex_name=STRING] 
            [--solvent_name=STRING] [--yaml_path=STRING] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT]
-           [--net_charge=INT] [--gaff_ver=INT] [--equi=INT] [--num_fep=INT] [--auto_select=STRING] [--charge_only=BOOL] [--optimize=BOOL] [--num_gpu=INT] [--job_type=STRING]...
+           [--net_charge=INT] [--gaff_ver=INT] [--equi=INT] [--num_fep=INT] [--auto_select=STRING] [--charge_only=BOOL] 
+           [--optimize=BOOL] [--num_gpu=INT] [--job_type=STRING]...
 """
 
 

@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-
 import time
 from simtk import unit
 import logging
@@ -136,12 +135,21 @@ class Mutants(object):
                     for atom in atom_idxs:
                         atom = int(atom-1)
                         for k, excep1 in enumerate(mutant_parmas):
+                            #Hinders multi permu (killing non corss terms)
                             if atom not in excep1['id']:
                                 exception_ghosts[i][j][k]['data'] = zero
                 else:
                     for k, excep1 in enumerate(mutant_parmas):
                         exception_ghosts[i][j][k]['data'] = zero
+        """
+        for x in exception_params[0][0]:
+            if x['data'][0] == 0.0*ee:
+                print(x)
 
+        for x in exception_ghosts[0][0]:
+            if x['data'][0] != 0.0*ee:
+                print(x)
+        """
         return exception_params, exception_ghosts
 
     def build_bonds(self, params, bond_order):
@@ -204,3 +212,5 @@ def unit_linspace(x, y, i):
         ans = np.linspace(x/unit1, y/unit2, i)
         ans = [x*unit1 for x in ans]
         return ans
+
+

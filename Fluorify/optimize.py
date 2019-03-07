@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+
 from .energy import FSim
 from simtk import unit
 from scipy.optimize import minimize
@@ -43,7 +44,7 @@ class Optimize(object):
             wt_nonbonded = [x['data'][0]/e for x in wt_nonbonded]
             wt_nonbonded = [[x] for x in wt_nonbonded]
             wt_excep = [{'id': x['id'], 'data': x['data'][0]/ee} for x in wt_excep]
-            net_charge = sum(wt_nonbonded)
+            net_charge = sum([x[0] for x in wt_nonbonded])
         return wt_nonbonded, wt_nonbonded_ids, wt_excep, net_charge
 
     def get_exception_scaling(self):
@@ -51,13 +52,15 @@ class Optimize(object):
         if self.charge_only == False:
             pass
         else:
-            for atom_id, charge in zip(self.wt_nonbonded_ids, self.wt_nonbonded):
+            for atom_id, param in zip(self.wt_nonbonded_ids, self.wt_nonbonded):
+                charge = param[0]
                 for charge_prod in exceptions:
                     if atom_id in charge_prod['id']:
                         charge_prod['data'] = charge_prod['data']/charge
         return exceptions
 
-    def get_charge_product(self, charges, charge_ids):
+    def get_charge_product(self, charges):
+        charge_ids = self.wt_nonbonded_ids
         new_charge_product = copy.deepcopy(self.excep_scaling)
         if self.charge_only == False:
             pass
@@ -89,13 +92,13 @@ class Optimize(object):
 
     def scipy_opt(self):
         cons = {'type': 'eq', 'fun': constraint, 'args': [self.net_charge]}
-        charges = self.wt_nonbonded
+        charges = [x[0] for x in self.wt_nonbonded]
         ddg = 0.0
         for step in range(self.steps):
             max_change = 0.1
-            bnds = [sorted((x[0] - max_change * x[0], x[0] + max_change * x[0])) for x in charges]
+            bnds = [sorted((x - max_change * x, x + max_change * x)) for x in charges]
             sol = minimize(objective, charges, bounds=bnds, options={'maxiter': 1}, jac=gradient,
-                           args=(charges, self.complex_sys, self.solvent_sys, self.num_frames), constraints=cons)
+                           args=(charges, self), constraints=cons)
             prev_charges = charges
             charges = [[x] for x in sol.x]
 
@@ -116,13 +119,33 @@ class Optimize(object):
 
         return sol.x, ddg
 
-def objective(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_frames):
-    mutant_parameters = [[x] for x in mutant_parameters]
+def build_opt_params(charges, sys_exception_params, sim):
+    #reorder exceptions
+    exception_order = [sim.complex_sys[0].exceptions_list, sim.solvent_sys[0].exceptions_list]
+    offset = [sim.complex_sys[0].offset, sim.solvent_sys[0].offset]
+    exception_params = [[], []]
+    for i, (sys_excep_order, sys_offset) in enumerate(zip(exception_order, offset)):
+        map = {x['id']: x for x in sys_exception_params}
+        exception_params[i] = [map[frozenset(int(x-sys_offset) for x in atom)] for atom in sys_excep_order]
+    # add ids back in to charges
+    charges = [{'id': x, 'data': y} for x, y in zip(sim.wt_nonbonded_ids, charges)]
+    #[[wild_type], [complex]], None id for ghost which is not used in optimization
+    complex_parameters = [charges, None, exception_params[0], None]
+    solvent_parameters = [charges, None, exception_params[1], None]
+    return complex_parameters, solvent_parameters
+
+def objective(peturbed_charges, current_charges, sim):
+    peturbed_exceptions = Optimize.get_charge_product(sim, peturbed_charges)
+    current_exceptions = Optimize.get_charge_product(sim, current_charges)
+    com_mut_param, sol_mut_param = build_opt_params(peturbed_charges, peturbed_exceptions, sim)
+    com_wt_param, sol_wt_param = build_opt_params(current_charges, current_exceptions, sim)
+    com_mut_param.append(com_wt_param)
+    sol_mut_param.append(sol_wt_param)
     logger.debug('Computing Objective...')
-    complex_free_energy = FSim.treat_phase(complex_sys[0], [[wt_parameters]], [[mutant_parameters]],
-                                           complex_sys[1], complex_sys[2], num_frames)
-    solvent_free_energy = FSim.treat_phase(solvent_sys[0], [[wt_parameters]], [[mutant_parameters]],
-                                           solvent_sys[1], solvent_sys[2], num_frames)
+    complex_free_energy = FSim.treat_phase(sim.complex_sys[0], [com_mut_param],
+                                           sim.complex_sys[1], sim.complex_sys[2], sim.num_frames)
+    solvent_free_energy = FSim.treat_phase(sim.solvent_sys[0], [sol_mut_param],
+                                           sim.solvent_sys[1], sim.solvent_sys[2], sim.num_frames)
     binding_free_energy = complex_free_energy[0] - solvent_free_energy[0]
     return binding_free_energy/unit.kilocalories_per_mole
 
