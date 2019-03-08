@@ -157,8 +157,11 @@ class FSim(object):
 
     def run_parallel_fep(self, mutant_params, system_idx, mutant_idx, n_steps, n_iterations, windows):
         logger.debug('Computing FEP for {}...'.format(self.name))
-        mutant_systems = mutant_params.build_fep_systems(system_idx, mutant_idx, windows,
-                                                       opt=self.opt, charge_only=self.charge_only)
+        if not self.opt:
+            mutant_systems = mutant_params.build_fep_systems(system_idx, mutant_idx, windows,
+                                                             opt=self.opt, charge_only=self.charge_only)
+        else:
+            mutant_systems = mutant_params
 
         nstates = len(mutant_systems)
         chunk = math.ceil(nstates / self.num_gpu)
@@ -203,7 +206,8 @@ class FSim(object):
 
         if mutant_parameters is not None:
             non_bonded_force = system.getForce(self.nonbonded_index)
-            self.apply_nonbonded_parameters(non_bonded_force, mutant_parameters)
+            self.apply_nonbonded_parameters(non_bonded_force, mutant_parameters[0], mutant_parameters[1],
+                                            mutant_parameters[2], mutant_parameters[3])
 
         box_vectors = self.input_pdb.topology.getPeriodicBoxVectors()
         system.setDefaultPeriodicBoxVectors(*box_vectors)
@@ -240,7 +244,6 @@ class FSim(object):
     def apply_nonbonded_parameters(self, force, params, ghost_params, excep, ghost_excep):
 
         #nonbonded
-        print(excep)
         for i, index in enumerate(self.ligand_info[0]):
             atom = int(index)
             nonbonded_params = params[i]['data']
@@ -408,10 +411,11 @@ def run_fep(idxs, sim, system, pdb, n_steps, n_iterations, all_mutants):
             sim.apply_nonbonded_parameters(nonbonded_force, all_mutants[m_id][0], all_mutants[m_id][1],
                                            all_mutants[m_id][2], all_mutants[m_id][3])
             nonbonded_force.updateParametersInContext(context)
-            sim.apply_bonded_parameters(harmonic_force, all_mutants[m_id][4])
-            harmonic_force.updateParametersInContext(context)
-            sim.apply_torsion_parameters(torsion_force, all_mutants[m_id][5])
-            torsion_force.updateParametersInContext(context)
+            if not sim.opt:
+                sim.apply_bonded_parameters(harmonic_force, all_mutants[m_id][4])
+                harmonic_force.updateParametersInContext(context)
+                sim.apply_torsion_parameters(torsion_force, all_mutants[m_id][5])
+                torsion_force.updateParametersInContext(context)
             # Run some dynamics
             integrator.step(n_steps)
             # Compute energies at all alchemical states
@@ -419,10 +423,11 @@ def run_fep(idxs, sim, system, pdb, n_steps, n_iterations, all_mutants):
                 sim.apply_nonbonded_parameters(nonbonded_force, global_mutant[0], global_mutant[1],
                                                global_mutant[2], global_mutant[3])
                 nonbonded_force.updateParametersInContext(context)
-                sim.apply_bonded_parameters(harmonic_force, global_mutant[4])
-                harmonic_force.updateParametersInContext(context)
-                sim.apply_torsion_parameters(torsion_force, global_mutant[5])
-                torsion_force.updateParametersInContext(context)
+                if not sim.opt:
+                    sim.apply_bonded_parameters(harmonic_force, global_mutant[4])
+                    harmonic_force.updateParametersInContext(context)
+                    sim.apply_torsion_parameters(torsion_force, global_mutant[5])
+                    torsion_force.updateParametersInContext(context)
                 u_kln[k, l, iteration] = context.getState(getEnergy=True,
                         groups={sim.nonbonded_index, sim.harmonic_index, sim.torsion_index}).getPotentialEnergy() / sim.kT
     return u_kln

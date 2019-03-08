@@ -98,7 +98,7 @@ class Fluorify(object):
                     break
 
         if opt:
-            steps = 12
+            steps = 1
             name = 'scipy'
             Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, equi, name, steps,
                      charge_only)
@@ -139,7 +139,7 @@ class Fluorify(object):
         mutations.append({'add': [], 'subtract': [], 'replace': [None]})
 
         #TODO units and torsion
-        log_param = True
+        log_param = False
         if log_param == True:
             for i, (mutant, mutation) in enumerate(zip(mutant_parameters, mutations)):
                 if mutant == mutant_parameters[-1]:

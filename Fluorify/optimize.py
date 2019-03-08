@@ -75,18 +75,27 @@ class Optimize(object):
         """optimising ligand charges
         """
         if name == 'scipy':
-            opt_charges, ddg_fs = Optimize.scipy_opt(self)
-            logger.debug('Original charges: {}'.format([x[0] for x in self.wt_parameters]))
+            opt_charges, opt_exceptions, ddg_fs = Optimize.scipy_opt(self)
+            original_charges = [x[0] for x in self.wt_nonbonded]
+            logger.debug('Original charges: {}'.format(original_charges))
             logger.debug('Optimized charges: {}'.format(opt_charges))
-            opt_charges = [[x] for x in opt_charges]
+
             fep = True
-            lambdas = np.linspace(0.0, 1.0, 10)
             if fep:
-                complex_dg = self.complex_sys[0].run_parallel_fep(self.wt_parameters, opt_charges, 20000, 50, lambdas)
-                solvent_dg = self.solvent_sys[0].run_parallel_fep(self.wt_parameters, opt_charges, 20000, 50, lambdas)
+                mut_charges = [opt_charges, original_charges]
+                mut_exceptions = [opt_exceptions, self.wt_excep]
+                com_mut_param, sol_mut_param = build_opt_params(mut_charges, mut_exceptions, self)
+                com_fep_params = Optimize.build_fep_params(self, com_mut_param, 12)
+                sol_fep_params = Optimize.build_fep_params(self, sol_mut_param, 12)
+                complex_dg, complex_error = self.complex_sys[0].run_parallel_fep(com_fep_params,
+                                                                                 None, None, 20000, 50, None)
+                solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(sol_fep_params,
+                                                                                 None, None, 20000, 50, None)
                 ddg_fep = complex_dg - solvent_dg
+                ddg_error = (complex_error**2+solvent_error**2)**0.5
                 logger.debug('ddG Fluorine Scanning = {}'.format(ddg_fs))
-                logger.debug('ddG FEP = {}'.format(ddg_fep))
+                logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
+
         else:
             raise ValueError('No other optimizers implemented')
 
@@ -100,73 +109,100 @@ class Optimize(object):
             sol = minimize(objective, charges, bounds=bnds, options={'maxiter': 1}, jac=gradient,
                            args=(charges, self), constraints=cons)
             prev_charges = charges
-            charges = [[x] for x in sol.x]
+            charges = sol.x
+            exceptions = Optimize.get_charge_product(self, charges)
+            com_mut_param, sol_mut_param = build_opt_params([charges], [exceptions], self)
 
             #run new dynamics with updated charges
             self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex_step'+str(step),
-                                                                            self.num_frames*2500, self.equi, [charges])
+                                                                            self.num_frames*2500, self.equi, com_mut_param[0])
             self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent_step'+str(step),
-                                                                            self.num_frames*2500, self.equi, [charges])
-            prev_charges = [x[0] for x in prev_charges]
+                                                                            self.num_frames*2500, self.equi, sol_mut_param[0])
             logger.debug('Computing reverse leg of accepted step...')
-            reverse_ddg = -1*objective(prev_charges, charges, self.complex_sys, self.solvent_sys, self.num_frames)
-            # NOT WORKING !!!
+            reverse_ddg = -1*objective(prev_charges, charges, self)
             if abs(sol.fun) >= 1.5*abs(reverse_ddg) or abs(sol.fun) <= 0.6666*abs(reverse_ddg):
                 logger.debug('Forward {} and reverse {} are not well agreed. Need more sampling'.format(sol.fun, reverse_ddg))
             ddg += (sol.fun+reverse_ddg)/2.0
             logger.debug(sol)
             logger.debug("Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step+1, self.steps))
 
-        return sol.x, ddg
+        return list(charges), exceptions, ddg
+
+    def build_fep_params(self, params, windows):
+        #build interpolated params
+        interpolated_params = []
+        for wt_force, mut_force in zip(params[-1], params[0]):
+            if wt_force is None:
+                interpolated_params.append(None)
+            else:
+                tmp = [[np.linspace(x['data'], y['data'], windows)] for x, y in zip(wt_force, mut_force)]
+                tmp = [[[x[i][j] for i in range(len(x))] for x in tmp] for j in range(windows)]
+                interpolated_params.append(tmp)
+        #add back in ids
+        for i, (force1, force2) in enumerate(zip(params[-1], interpolated_params)):
+            if force1 is None:
+                pass
+            else:
+                for j, mutant in enumerate(force2):
+                    for k, (param1, param2) in enumerate(zip(force1, mutant)):
+                        interpolated_params[i][j][k] = copy.deepcopy(param1)
+                        interpolated_params[i][j][k]['data'] = param2[0]
+
+        mutant_systems = [[x, None, y, None] for x, y in zip(interpolated_params[0], interpolated_params[2])]
+        return mutant_systems
 
 def build_opt_params(charges, sys_exception_params, sim):
     #reorder exceptions
     exception_order = [sim.complex_sys[0].exceptions_list, sim.solvent_sys[0].exceptions_list]
     offset = [sim.complex_sys[0].offset, sim.solvent_sys[0].offset]
     exception_params = [[], []]
-    for i, (sys_excep_order, sys_offset) in enumerate(zip(exception_order, offset)):
-        map = {x['id']: x for x in sys_exception_params}
-        exception_params[i] = [map[frozenset(int(x-sys_offset) for x in atom)] for atom in sys_excep_order]
-    # add ids back in to charges
-    charges = [{'id': x, 'data': y} for x, y in zip(sim.wt_nonbonded_ids, charges)]
     #[[wild_type], [complex]], None id for ghost which is not used in optimization
-    complex_parameters = [charges, None, exception_params[0], None]
-    solvent_parameters = [charges, None, exception_params[1], None]
+    for i, (sys_excep_order, sys_offset) in enumerate(zip(exception_order, offset)):
+        for j, mutant_parmas in enumerate(sys_exception_params):
+            map = {x['id']: x for x in mutant_parmas}
+            sys_exception_params[j] = [map[frozenset(int(x-sys_offset) for x in atom)] for atom in sys_excep_order]
+            exception_params[i].append(sys_exception_params[j])
+    for i, mut in enumerate(charges):
+        charges[i] = [{'id': x, 'data': y} for x, y in zip(sim.wt_nonbonded_ids, mut)]
+    complex_parameters = [[x, None, y, None] for x, y in zip(charges, exception_params[0])]
+    solvent_parameters = [[x, None, y, None] for x, y in zip(charges, exception_params[1])]
     return complex_parameters, solvent_parameters
+
 
 def objective(peturbed_charges, current_charges, sim):
     peturbed_exceptions = Optimize.get_charge_product(sim, peturbed_charges)
     current_exceptions = Optimize.get_charge_product(sim, current_charges)
-    com_mut_param, sol_mut_param = build_opt_params(peturbed_charges, peturbed_exceptions, sim)
-    com_wt_param, sol_wt_param = build_opt_params(current_charges, current_exceptions, sim)
-    com_mut_param.append(com_wt_param)
-    sol_mut_param.append(sol_wt_param)
+    sys_charge_params = [peturbed_charges, current_charges]
+    sys_exception_params = [peturbed_exceptions, current_exceptions]
+    com_mut_param, sol_mut_param = build_opt_params(sys_charge_params, sys_exception_params, sim)
     logger.debug('Computing Objective...')
-    complex_free_energy = FSim.treat_phase(sim.complex_sys[0], [com_mut_param],
+    complex_free_energy = FSim.treat_phase(sim.complex_sys[0], com_mut_param,
                                            sim.complex_sys[1], sim.complex_sys[2], sim.num_frames)
-    solvent_free_energy = FSim.treat_phase(sim.solvent_sys[0], [sol_mut_param],
+    solvent_free_energy = FSim.treat_phase(sim.solvent_sys[0], sol_mut_param,
                                            sim.solvent_sys[1], sim.solvent_sys[2], sim.num_frames)
     binding_free_energy = complex_free_energy[0] - solvent_free_energy[0]
     return binding_free_energy/unit.kilocalories_per_mole
 
 
-def gradient(mutant_parameters, wt_parameters, complex_sys, solvent_sys, num_frames):
-    num_frames = int(num_frames/2)
+def gradient(peturbed_charges, current_charges, sim):
+    num_frames = int(sim.num_frames/2)
     binding_free_energy = []
-    og_mutant_parameters = mutant_parameters
     mutant_parameters = []
     h = 1.5e-04
-    for i in range(len(og_mutant_parameters)):
-        mutant = copy.deepcopy(og_mutant_parameters)
+    for i in range(len(peturbed_charges)):
+        mutant = copy.deepcopy(peturbed_charges)
         mutant[i] = mutant[i] + h
-        mutant = [[x] for x in mutant]
-        mutant_parameters.append([mutant])
+        mutant_parameters.append(mutant)
+    mutant_exceptions = [Optimize.get_charge_product(sim, x) for x in mutant_parameters]
+    mutant_parameters.append(current_charges)
+    mutant_exceptions.append(Optimize.get_charge_product(sim, current_charges))
+    com_mut_param, sol_mut_param = build_opt_params(mutant_parameters, mutant_exceptions, sim)
 
     logger.debug('Computing Jacobian...')
-    complex_free_energy = FSim.treat_phase(complex_sys[0], [[wt_parameters]], mutant_parameters,
-                                           complex_sys[1], complex_sys[2], num_frames)
-    solvent_free_energy = FSim.treat_phase(solvent_sys[0], [[wt_parameters]], mutant_parameters,
-                                           solvent_sys[1], solvent_sys[2], num_frames)
+    complex_free_energy = FSim.treat_phase(sim.complex_sys[0], com_mut_param,
+                                           sim.complex_sys[1], sim.complex_sys[2], num_frames)
+    solvent_free_energy = FSim.treat_phase(sim.solvent_sys[0], sol_mut_param,
+                                           sim.solvent_sys[1], sim.solvent_sys[2], num_frames)
     for sol, com in zip(solvent_free_energy, complex_free_energy):
         free_energy = com - sol
         free_energy = free_energy/h
@@ -179,5 +215,4 @@ def constraint(mutant_parameters, net_charge):
     for charge in mutant_parameters:
         sum_ = sum_ - charge
     return sum_
-
 
