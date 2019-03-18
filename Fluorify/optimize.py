@@ -99,13 +99,26 @@ class Optimize(object):
         else:
             raise ValueError('No other optimizers implemented')
 
+    def get_bounds(self, current_charge, periter_change, total_change):
+        og_charge = [x[0] for x in self.wt_nonbonded]
+        change = [abs(x-y) for x, y in zip(current_charge, og_charge)]
+        bnds = []
+        for x, y in zip(change, current_charge):
+            if x >= total_change:
+                bnds.append((y-periter_change, y))
+            elif x <= -total_change:
+                bnds.append((y, y+periter_change))
+            else:
+                bnds.append((y-periter_change, y+periter_change))
+        return bnds
+
+
     def scipy_opt(self):
         cons = {'type': 'eq', 'fun': constraint, 'args': [self.net_charge]}
         charges = [x[0] for x in self.wt_nonbonded]
         ddg = 0.0
         for step in range(self.steps):
-            max_change = 0.1
-            bnds = [sorted((x - max_change * x, x + max_change * x)) for x in charges]
+            bnds = Optimize.get_bounds(self, charges, 0.03, 0.3)
             sol = minimize(objective, charges, bounds=bnds, options={'maxiter': 1}, jac=gradient,
                            args=(charges, self), constraints=cons)
             prev_charges = charges
@@ -120,8 +133,7 @@ class Optimize(object):
                                                                             self.num_frames*2500, self.equi, sol_mut_param[0])
             logger.debug('Computing reverse leg of accepted step...')
             reverse_ddg = -1*objective(prev_charges, charges, self)
-            if abs(sol.fun) >= 1.5*abs(reverse_ddg) or abs(sol.fun) <= 0.6666*abs(reverse_ddg):
-                logger.debug('Forward {} and reverse {} are not well agreed. Need more sampling'.format(sol.fun, reverse_ddg))
+            logger.debug('Forward {} and reverse {} steps'.format(sol.fun, reverse_ddg))
             ddg += (sol.fun+reverse_ddg)/2.0
             logger.debug(sol)
             logger.debug("Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step+1, self.steps))
@@ -185,28 +197,37 @@ def objective(peturbed_charges, current_charges, sim):
 
 
 def gradient(peturbed_charges, current_charges, sim):
-    num_frames = int(sim.num_frames/2)
-    binding_free_energy = []
-    mutant_parameters = []
-    h = 1.5e-04
-    for i in range(len(peturbed_charges)):
-        mutant = copy.deepcopy(peturbed_charges)
-        mutant[i] = mutant[i] + h
-        mutant_parameters.append(mutant)
-    mutant_exceptions = [Optimize.get_charge_product(sim, x) for x in mutant_parameters]
-    mutant_parameters.append(current_charges)
-    mutant_exceptions.append(Optimize.get_charge_product(sim, current_charges))
-    com_mut_param, sol_mut_param = build_opt_params(mutant_parameters, mutant_exceptions, sim)
-
+    num_frames = int(sim.num_frames)
+    dh = 1.5e-04
+    half_h = [0.5*dh, -0.5*dh]
+    ddG = []
     logger.debug('Computing Jacobian...')
-    complex_free_energy = FSim.treat_phase(sim.complex_sys[0], com_mut_param,
-                                           sim.complex_sys[1], sim.complex_sys[2], num_frames)
-    solvent_free_energy = FSim.treat_phase(sim.solvent_sys[0], sol_mut_param,
-                                           sim.solvent_sys[1], sim.solvent_sys[2], num_frames)
-    for sol, com in zip(solvent_free_energy, complex_free_energy):
-        free_energy = com - sol
-        free_energy = free_energy/h
-        binding_free_energy.append(free_energy/unit.kilocalories_per_mole)
+    for h in half_h:
+        binding_free_energy = []
+        mutant_parameters = []
+        for i in range(len(peturbed_charges)):
+            mutant = copy.deepcopy(peturbed_charges)
+            mutant[i] = mutant[i] + h
+            mutant_parameters.append(mutant)
+        mutant_exceptions = [Optimize.get_charge_product(sim, x) for x in mutant_parameters]
+        mutant_parameters.append(current_charges)
+        mutant_exceptions.append(Optimize.get_charge_product(sim, current_charges))
+        com_mut_param, sol_mut_param = build_opt_params(mutant_parameters, mutant_exceptions, sim)
+        complex_free_energy = FSim.treat_phase(sim.complex_sys[0], com_mut_param,
+                                               sim.complex_sys[1], sim.complex_sys[2], num_frames)
+        solvent_free_energy = FSim.treat_phase(sim.solvent_sys[0], sol_mut_param,
+                                               sim.solvent_sys[1], sim.solvent_sys[2], num_frames)
+
+        for sol, com in zip(solvent_free_energy, complex_free_energy):
+            free_energy = com - sol
+            free_energy = free_energy/h
+            binding_free_energy.append(free_energy/unit.kilocalories_per_mole)
+        ddG.append(binding_free_energy)
+
+    binding_free_energy = []
+    for forwards, backwards in zip(ddG[0], ddG[1]):
+        binding_free_energy.append((forwards - backwards)/dh)
+
     return binding_free_energy
 
 

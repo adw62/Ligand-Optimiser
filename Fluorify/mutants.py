@@ -160,6 +160,8 @@ class Mutants(object):
                 map = {x['id']: x for x in mutant_params}
                 sys_bonded_params[j] = [map[frozenset(int(x-sys_offset) for x in atom)] for atom in sys_bond_order]
                 bonded_params[i].append(sys_bonded_params[j])
+
+
         return bonded_params
 
     def build_torsions(self, params, torsion_order):

@@ -98,7 +98,7 @@ class Fluorify(object):
                     break
 
         if opt:
-            steps = 1
+            steps = 12
             name = 'scipy'
             Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, equi, name, steps,
                      charge_only)
