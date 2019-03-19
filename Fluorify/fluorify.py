@@ -22,7 +22,8 @@ e = unit.elementary_charges
 
 class Fluorify(object):
     def __init__(self, output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name, job_type,
-                 auto_select, c_atom_list, h_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu, num_fep, equi):
+                 auto_select, c_atom_list, h_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu, num_fep, equi,
+                 central_diff, opt_name, opt_steps):
 
         self.output_folder = output_folder
         self.net_charge = net_charge
@@ -63,6 +64,13 @@ class Fluorify(object):
         if complex_ligand_atoms != solvent_ligand_atoms:
             raise ValueError('Names and or name casing and or atom order of ligand not matched across input files.'
                              'Charges will not be applied where expected')
+        #write out atom names for convenience
+        if opt:
+            file = open('atom_names', 'w')
+            for name in self.mol2_ligand_atoms:
+                file.write('{}\n'.format(name))
+            file.close()
+
         input_files = input_files[1:3]
         self.complex_offset, self.solvent_offset = get_ligand_offset(input_files, self.mol2_ligand_atoms, ligand_name)
         logger.debug('Parametrize wild type ligand...')
@@ -98,10 +106,8 @@ class Fluorify(object):
                     break
 
         if opt:
-            steps = 12
-            name = 'scipy'
-            Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, equi, name, steps,
-                     charge_only)
+            Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, equi, opt_name, opt_steps,
+                     charge_only, central_diff, self.num_fep)
         else:
             Fluorify.scanning(self, wt_ligand, auto_select, c_atom_list, h_atom_list)
 
@@ -220,22 +226,21 @@ class Fluorify(object):
         logger.debug('Took {} seconds'.format(t1 - t0))
 
         x_best = min(self.num_fep, len(best_mutants))
-        fep = True
-        if fep:
-            logger.debug('Calculating FEP for {} best mutants...'.format(x_best))
-            t0 = time.time()
-            for x in range(x_best):
-                complex_dg, complex_error = self.complex_sys[0].run_parallel_fep(mutant_params, 0, best_mutants[x][2],
-                                                                                 20000, 50, 12)
-                solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(mutant_params, 1, best_mutants[x][2],
-                                                                                 20000, 50, 12)
-                ddg_fep = complex_dg - solvent_dg
-                ddg_error = (complex_error**2+solvent_error**2)**0.5
-                logger.debug('Mutant {}:'.format(best_mutants[x][1]))
-                logger.debug('ddG Fluorine Scanning = {}'.format(best_mutants[x][0]))
-                logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
-            t1 = time.time()
-            logger.debug('Took {} seconds'.format(t1 - t0))
+
+        logger.debug('Calculating FEP for {} best mutants...'.format(x_best))
+        t0 = time.time()
+        for x in range(x_best):
+            complex_dg, complex_error = self.complex_sys[0].run_parallel_fep(mutant_params, 0, best_mutants[x][2],
+                                                                             20000, 50, 12)
+            solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(mutant_params, 1, best_mutants[x][2],
+                                                                             20000, 50, 12)
+            ddg_fep = complex_dg - solvent_dg
+            ddg_error = (complex_error**2+solvent_error**2)**0.5
+            logger.debug('Mutant {}:'.format(best_mutants[x][1]))
+            logger.debug('ddG Fluorine Scanning = {}'.format(best_mutants[x][0]))
+            logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
+        t1 = time.time()
+        logger.debug('Took {} seconds'.format(t1 - t0))
 
     def element_perturbation(self, auto_select, c_atom_list, h_atom_list):
         """

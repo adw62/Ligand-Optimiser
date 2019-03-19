@@ -7,6 +7,7 @@ from scipy.optimize import minimize
 import copy
 import logging
 import numpy as np
+import glob
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ ee = e*e
 
 class Optimize(object):
     def __init__(self, wt_ligand, complex_sys, solvent_sys, output_folder, num_frames, equi, name, steps,
-                 charge_only):
+                 charge_only, central_diff, num_fep):
 
         self.complex_sys = complex_sys
         self.solvent_sys = solvent_sys
@@ -25,6 +26,8 @@ class Optimize(object):
         self.steps = steps
         self.output_folder = output_folder
         self.charge_only = charge_only
+        self.central = central_diff
+        self.num_fep = num_fep
         self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep,\
         self.net_charge = Optimize.build_params(self, wt_ligand)
         self.excep_scaling = Optimize.get_exception_scaling(self)
@@ -74,30 +77,44 @@ class Optimize(object):
     def optimize(self, name):
         """optimising ligand charges
         """
-        if name == 'scipy':
-            opt_charges, opt_exceptions, ddg_fs = Optimize.scipy_opt(self)
-            original_charges = [x[0] for x in self.wt_nonbonded]
-            logger.debug('Original charges: {}'.format(original_charges))
-            logger.debug('Optimized charges: {}'.format(opt_charges))
 
-            fep = True
-            if fep:
-                mut_charges = [opt_charges, original_charges]
-                mut_exceptions = [opt_exceptions, self.wt_excep]
-                com_mut_param, sol_mut_param = build_opt_params(mut_charges, mut_exceptions, self)
-                com_fep_params = Optimize.build_fep_params(self, com_mut_param, 12)
-                sol_fep_params = Optimize.build_fep_params(self, sol_mut_param, 12)
-                complex_dg, complex_error = self.complex_sys[0].run_parallel_fep(com_fep_params,
-                                                                                 None, None, 20000, 50, None)
-                solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(sol_fep_params,
-                                                                                 None, None, 20000, 50, None)
-                ddg_fep = complex_dg - solvent_dg
-                ddg_error = (complex_error**2+solvent_error**2)**0.5
-                logger.debug('ddG Fluorine Scanning = {}'.format(ddg_fs))
-                logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
+        if name == 'scipy':
+            opt_charges, ddg_fs = Optimize.scipy_opt(self)
+
+        elif name == 'FEP_only':
+            #Get optimized charges from file to calc full FEP ddG
+            file = open('charges_opt', 'r')
+            logger.debug('Using charges from {}'.format(file.name))
+            opt_charges = [float(line) for line in file]
 
         else:
             raise ValueError('No other optimizers implemented')
+
+        for replica in range(self.num_fep):
+            logger.debug('Replica {}/{}'.format(replica+1, self.num_fep))
+            complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, opt_charges)
+            ddg_fep = complex_dg - solvent_dg
+            ddg_error = (complex_error ** 2 + solvent_error ** 2) ** 0.5
+            logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
+        logger.debug('ddG Fluorine Scanning = {}'.format(ddg_fs))
+
+    def run_fep(self, opt_charges):
+        original_charges = [x[0] for x in self.wt_nonbonded]
+        opt_exceptions = Optimize.get_charge_product(self, opt_charges)
+        logger.debug('Original charges: {}'.format(original_charges))
+        logger.debug('Optimized charges: {}'.format(opt_charges))
+        mut_charges = [opt_charges, original_charges]
+        mut_exceptions = [opt_exceptions, self.wt_excep]
+        com_mut_param, sol_mut_param = build_opt_params(mut_charges, mut_exceptions, self)
+        com_fep_params = Optimize.build_fep_params(self, com_mut_param, 12)
+        sol_fep_params = Optimize.build_fep_params(self, sol_mut_param, 12)
+        complex_dg, complex_error = self.complex_sys[0].run_parallel_fep(com_fep_params,
+                                                                         None, None, 20000, 50, None)
+        solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(sol_fep_params,
+                                                                         None, None, 20000, 50, None)
+
+        return complex_dg, complex_error, solvent_dg, solvent_error
+
 
     def get_bounds(self, current_charge, periter_change, total_change):
         og_charge = [x[0] for x in self.wt_nonbonded]
@@ -118,7 +135,9 @@ class Optimize(object):
         charges = [x[0] for x in self.wt_nonbonded]
         ddg = 0.0
         for step in range(self.steps):
-            bnds = Optimize.get_bounds(self, charges, 0.03, 0.3)
+            write_charges('charges_opt', charges)
+            write_charges('charge_{}'.format(step), charges)
+            bnds = Optimize.get_bounds(self, charges, 0.015, 0.5)
             sol = minimize(objective, charges, bounds=bnds, options={'maxiter': 1}, jac=gradient,
                            args=(charges, self), constraints=cons)
             prev_charges = charges
@@ -138,7 +157,7 @@ class Optimize(object):
             logger.debug(sol)
             logger.debug("Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step+1, self.steps))
 
-        return list(charges), exceptions, ddg
+        return list(charges), ddg
 
     def build_fep_params(self, params, windows):
         #build interpolated params
@@ -199,15 +218,19 @@ def objective(peturbed_charges, current_charges, sim):
 def gradient(peturbed_charges, current_charges, sim):
     num_frames = int(sim.num_frames)
     dh = 1.5e-04
-    half_h = [0.5*dh, -0.5*dh]
+    if sim.central:
+        h = [0.5*dh, -0.5*dh]
+        logger.debug('Computing Jacobian with central difference...')
+    else:
+        h = [dh]
+        logger.debug('Computing Jacobian with forward difference...')
     ddG = []
-    logger.debug('Computing Jacobian...')
-    for h in half_h:
+    for diff in h:
         binding_free_energy = []
         mutant_parameters = []
         for i in range(len(peturbed_charges)):
             mutant = copy.deepcopy(peturbed_charges)
-            mutant[i] = mutant[i] + h
+            mutant[i] = mutant[i] + diff
             mutant_parameters.append(mutant)
         mutant_exceptions = [Optimize.get_charge_product(sim, x) for x in mutant_parameters]
         mutant_parameters.append(current_charges)
@@ -220,15 +243,18 @@ def gradient(peturbed_charges, current_charges, sim):
 
         for sol, com in zip(solvent_free_energy, complex_free_energy):
             free_energy = com - sol
-            free_energy = free_energy/h
+            if not sim.central:
+                free_energy = free_energy/diff
             binding_free_energy.append(free_energy/unit.kilocalories_per_mole)
         ddG.append(binding_free_energy)
 
-    binding_free_energy = []
-    for forwards, backwards in zip(ddG[0], ddG[1]):
-        binding_free_energy.append((forwards - backwards)/dh)
-
-    return binding_free_energy
+    if sim.central:
+        binding_free_energy = []
+        for forwards, backwards in zip(ddG[0], ddG[1]):
+            binding_free_energy.append((forwards - backwards)/dh)
+            return binding_free_energy
+    else:
+        return binding_free_energy
 
 
 def constraint(mutant_parameters, net_charge):
@@ -236,4 +262,11 @@ def constraint(mutant_parameters, net_charge):
     for charge in mutant_parameters:
         sum_ = sum_ - charge
     return sum_
+
+def write_charges(name, charges):
+    file = open(name, 'w')
+    for q in charges:
+        file.write('{}\n'.format(q))
+    file.close()
+
 

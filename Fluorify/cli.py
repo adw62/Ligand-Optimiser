@@ -19,7 +19,7 @@ Usage:
   Fluorify [--output_folder=STRING] [--mol_name=STRING] [--ligand_name=STRING] [--complex_name=STRING] 
            [--solvent_name=STRING] [--yaml_path=STRING] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT]
            [--net_charge=INT] [--gaff_ver=INT] [--equi=INT] [--num_fep=INT] [--auto_select=STRING] [--charge_only=BOOL] 
-           [--optimize=BOOL] [--num_gpu=INT] [--job_type=STRING]...
+           [--optimize=BOOL] [--num_gpu=INT] [--opt_name=STRING] [--opt_steps=INT] [--central_diff=BOOL] [--job_type=STRING]...
 """
 
 
@@ -129,8 +129,32 @@ def main(argv=None):
         h_atom_list = None
         auto_select = None
         job_type = 'optimize'
+        if args['--central_diff']:
+            central_diff = int(args['--central_diff'])
+        else:
+            central_diff = True
+            logger.debug(msg.format('finite difference method', 'central difference'))
+        optimizer_names = ['scipy', 'FEP_only']
+        if args['--opt_name']:
+            opt_name = args['--opt_name']
+            if opt_name not in optimizer_names:
+                raise ValueError('Unknown optimizer specified chose from {}'.format(optimizer_names))
+        else:
+            opt_name = 'scipy'
+            logger.debug(msg.format('optimization method', opt_name))
+        if args['--opt_steps']:
+            opt_steps = int(args['--opt_steps'])
+        else:
+            opt_steps = 10
+            logger.debug(msg.format('number of optimization steps', opt_steps))
     else:
         logger.debug('Scanning ligand...')
+        if args['--central_diff']:
+            raise ValueError('Finite difference method option only compatible with an optimization')
+        if args['--opt_name']:
+            raise ValueError('Optimization method option only compatible with an optimization')
+        if args['--opt_steps']:
+            raise ValueError('Number of optimization steps option only compatible with an optimization')
         if args['--c_atom_list']:
             c_atom_list = []
             pairs = args['--c_atom_list']
@@ -196,11 +220,11 @@ def main(argv=None):
     if args['--num_fep']:
         num_fep = args['--num_fep']
     else:
-        num_fep = 3
-        logger.debug(msg.format('number of best mutants to calculate with full FEP', num_fep))
-
+        num_fep = 1
+        logger.debug(msg.format('number of FEP calculations', num_fep))
 
 
     Fluorify(output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name,
-         job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu, num_fep, equi)
+         job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu, num_fep, equi,
+             central_diff, opt_name, opt_steps)
 
