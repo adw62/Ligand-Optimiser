@@ -7,7 +7,6 @@ from scipy.optimize import minimize
 import copy
 import logging
 import numpy as np
-import glob
 
 logger = logging.getLogger(__name__)
 
@@ -131,14 +130,17 @@ class Optimize(object):
 
 
     def scipy_opt(self):
-        cons = {'type': 'eq', 'fun': constraint, 'args': [self.net_charge]}
+        og_charges = [x[0] for x in self.wt_nonbonded]
         charges = [x[0] for x in self.wt_nonbonded]
+        con1 = {'type': 'eq', 'fun': net_charge_con, 'args': [self.net_charge]}
+        con2 = {'type': 'ineq', 'fun': rmsd_change_con, 'args': [og_charges]}
+        cons = [con1, con2]
         ddg = 0.0
         for step in range(self.steps):
             write_charges('charges_opt', charges)
             write_charges('charge_{}'.format(step), charges)
-            bnds = Optimize.get_bounds(self, charges, 0.015, 0.5)
-            sol = minimize(objective, charges, bounds=bnds, options={'maxiter': 1}, jac=gradient,
+            bounds = Optimize.get_bounds(self, charges, 0.0015, 0.5)
+            sol = minimize(objective, charges, bounds=bounds, options={'maxiter': 1}, jac=gradient,
                            args=(charges, self), constraints=cons)
             prev_charges = charges
             charges = sol.x
@@ -252,16 +254,23 @@ def gradient(peturbed_charges, current_charges, sim):
         binding_free_energy = []
         for forwards, backwards in zip(ddG[0], ddG[1]):
             binding_free_energy.append((forwards - backwards)/dh)
-            return binding_free_energy
+        return binding_free_energy
     else:
         return binding_free_energy
 
 
-def constraint(mutant_parameters, net_charge):
+def net_charge_con(current_charge, net_charge):
     sum_ = net_charge
-    for charge in mutant_parameters:
+    for charge in current_charge:
         sum_ = sum_ - charge
     return sum_
+
+
+def rmsd_change_con(current_charge, og_charge):
+    maximum_rmsd = 0.05
+    rmsd = (np.sum([(x - y) ** 2 for x, y in zip(current_charge, og_charge)])) ** 0.5
+    return maximum_rmsd - rmsd
+
 
 def write_charges(name, charges):
     file = open(name, 'w')
