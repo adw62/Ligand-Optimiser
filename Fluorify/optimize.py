@@ -91,12 +91,19 @@ class Optimize(object):
             perturbation = 0.01
             sampling = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
             og_charges = [x[0] for x in self.wt_nonbonded]
-            peturb_charges = [x[0]+perturbation for x in self.wt_nonbonded]
+            peturb_charges = copy.deepcopy(og_charges)
+            for i in range(0, int(np.ceil(len(peturb_charges) / 2))):
+                peturb_charges[i] = peturb_charges[i] + perturbation
+            for i in range(int(len(peturb_charges) / 2), int(len(peturb_charges))):
+                peturb_charges[i] = peturb_charges[i] - perturbation
+            logger.debug('og net charge {}, perturbed net charge {}'.format(sum(og_charges), sum(peturb_charges)))
+            if round(sum(og_charges), 5) != round(sum(peturb_charges), 5):
+                raise ValueError('Net charge change')
             exceptions = Optimize.get_charge_product(self, og_charges)
             com_mut_param, sol_mut_param = build_opt_params([og_charges], [exceptions], self)
             for num_frames in sampling:
                 self.num_frames = num_frames
-                for replica in range(0, 2):
+                for replica in range(0, 3):
                     self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex', self.num_frames * 2500,
                                                                                     self.equi, com_mut_param[0])
                     self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent', self.num_frames * 2500,
