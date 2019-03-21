@@ -134,7 +134,7 @@ def main(argv=None):
         else:
             central_diff = True
             logger.debug(msg.format('finite difference method', 'central difference'))
-        optimizer_names = ['scipy', 'FEP_only']
+        optimizer_names = ['scipy', 'FEP_only', 'convergence_test']
         if args['--opt_name']:
             opt_name = args['--opt_name']
             if opt_name not in optimizer_names:

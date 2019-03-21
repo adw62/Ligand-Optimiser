@@ -86,6 +86,25 @@ class Optimize(object):
             logger.debug('Using charges from {}'.format(file.name))
             opt_charges = [float(line) for line in file]
 
+        elif name == 'convergence_test':
+            self.num_fep = 0
+            perturbation = 0.01
+            sampling = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+            og_charges = [x[0] for x in self.wt_nonbonded]
+            peturb_charges = [x[0]+perturbation for x in self.wt_nonbonded]
+            exceptions = Optimize.get_charge_product(self, og_charges)
+            com_mut_param, sol_mut_param = build_opt_params([og_charges], [exceptions], self)
+            for num_frames in sampling:
+                self.num_frames = num_frames
+                for replica in range(0, 2):
+                    self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex', self.num_frames * 2500,
+                                                                                    self.equi, com_mut_param[0])
+                    self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent', self.num_frames * 2500,
+                                                                                    self.equi, sol_mut_param[0])
+
+                    ddG = objective(og_charges, peturb_charges, self)
+                    logger.debug('ddG Fluorine Scanning  for {} frames for replica {} = {} kcal/mol'.format(num_frames, replica, ddG))
+
         else:
             raise ValueError('No other optimizers implemented')
 
@@ -95,7 +114,8 @@ class Optimize(object):
             ddg_fep = complex_dg - solvent_dg
             ddg_error = (complex_error ** 2 + solvent_error ** 2) ** 0.5
             logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
-        logger.debug('ddG Fluorine Scanning = {}'.format(ddg_fs))
+        if name != 'FEP_only':
+            logger.debug('ddG Fluorine Scanning = {}'.format(ddg_fs))
 
     def run_fep(self, opt_charges):
         original_charges = [x[0] for x in self.wt_nonbonded]
@@ -138,8 +158,8 @@ class Optimize(object):
         ddg = 0.0
         for step in range(self.steps):
             write_charges('charges_opt', charges)
-            write_charges('charge_{}'.format(step), charges)
-            bounds = Optimize.get_bounds(self, charges, 0.0015, 0.5)
+            write_charges('charges_{}'.format(step), charges)
+            bounds = Optimize.get_bounds(self, charges, 0.01, 0.5)
             sol = minimize(objective, charges, bounds=bounds, options={'maxiter': 1}, jac=gradient,
                            args=(charges, self), constraints=cons)
             prev_charges = charges
