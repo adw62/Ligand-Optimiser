@@ -203,6 +203,8 @@ class FSim(object):
 
     def run_parallel_dynamics(self, output_folder, name, n_steps, equi, mutant_parameters):
         system = copy.deepcopy(self.wt_system)
+        n_steps = math.ceil(n_steps/self.num_gpu)
+        n_steps = n_steps * 2500
 
         if mutant_parameters is not None:
             non_bonded_force = system.getForce(self.nonbonded_index)
@@ -216,7 +218,7 @@ class FSim(object):
         dcd_names = [output_folder+name+'_gpu'+str(i)+'.dcd' for i in range(self.num_gpu)]
         groups = grouper(dcd_names, 1)
         pool = Pool(processes=self.num_gpu)
-        run = partial(run_dynamics, system=system, sim=self, equi=equi, n_steps=math.ceil(n_steps/self.num_gpu))
+        run = partial(run_dynamics, system=system, sim=self, equi=equi, n_steps=n_steps)
         pool.map(run, groups)
         pool.close()
         pool.join()

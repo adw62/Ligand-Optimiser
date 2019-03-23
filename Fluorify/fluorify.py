@@ -89,7 +89,7 @@ class Fluorify(object):
             for name in self.complex_sys[1]:
                 if not os.path.isfile(name):
                     self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(complex_sim_dir, complex_name,
-                                                                                    self.num_frames*2500, equi, None)
+                                                                                    self.num_frames, equi, None)
                     break
         #SOLVENT
         self.solvent_sys = []
@@ -102,7 +102,7 @@ class Fluorify(object):
             for name in self.solvent_sys[1]:
                 if not os.path.isfile(name):
                     self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(solvent_sim_dir, solvent_name,
-                                                                                    self.num_frames*2500, equi, None)
+                                                                                    self.num_frames, equi, None)
                     break
 
         if opt:
