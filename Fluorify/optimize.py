@@ -300,8 +300,8 @@ def net_charge_con(current_charge, net_charge):
 
 
 def rmsd_change_con(current_charge, og_charge):
-    maximum_rmsd = 0.085
-    rmsd = (np.sum([(x - y) ** 2 for x, y in zip(current_charge, og_charge)])) ** 0.5
+    maximum_rmsd = 0.02
+    rmsd = (np.average([(x - y) ** 2 for x, y in zip(current_charge, og_charge)])) ** 0.5
     return maximum_rmsd - rmsd
 
 
