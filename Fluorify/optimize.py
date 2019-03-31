@@ -16,7 +16,7 @@ ee = e*e
 
 class Optimize(object):
     def __init__(self, wt_ligand, complex_sys, solvent_sys, output_folder, num_frames, equi, name, steps,
-                 charge_only, central_diff, num_fep):
+                 charge_only, central_diff, num_fep, rmsd):
 
         self.complex_sys = complex_sys
         self.solvent_sys = solvent_sys
@@ -27,6 +27,7 @@ class Optimize(object):
         self.charge_only = charge_only
         self.central = central_diff
         self.num_fep = num_fep
+        self.rmsd = rmsd
         self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep,\
         self.net_charge = Optimize.build_params(self, wt_ligand)
         self.excep_scaling = Optimize.get_exception_scaling(self)
@@ -160,7 +161,7 @@ class Optimize(object):
         og_charges = [x[0] for x in self.wt_nonbonded]
         charges = [x[0] for x in self.wt_nonbonded]
         con1 = {'type': 'eq', 'fun': net_charge_con, 'args': [self.net_charge]}
-        con2 = {'type': 'ineq', 'fun': rmsd_change_con, 'args': [og_charges]}
+        con2 = {'type': 'ineq', 'fun': rmsd_change_con, 'args': [og_charges, self.rmsd]}
         cons = [con1, con2]
         ddg = 0.0
         convergance_criteria = 0.1
@@ -299,8 +300,8 @@ def net_charge_con(current_charge, net_charge):
     return sum_
 
 
-def rmsd_change_con(current_charge, og_charge):
-    maximum_rmsd = 0.02
+def rmsd_change_con(current_charge, og_charge, rmsd):
+    maximum_rmsd = rmsd
     rmsd = (np.average([(x - y) ** 2 for x, y in zip(current_charge, og_charge)])) ** 0.5
     return maximum_rmsd - rmsd
 
