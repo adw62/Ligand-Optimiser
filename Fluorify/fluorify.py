@@ -412,6 +412,7 @@ def add_sulphurs(mol, new_element, auto_select, atom_list):
     if atom_list is None:
         oxygen_type = 'O.' + auto_select
         atom_list = Mol2.get_atom_by_string(mol, oxygen_type)
+        atom_list = [[x] for x in atom_list]
     mutated_systems = Mol2.mutate(mol, atom_list, new_element)
     #should check this is a double bonded sulphr with only carbon neighbours
 
