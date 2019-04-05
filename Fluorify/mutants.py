@@ -41,8 +41,8 @@ class Mutants(object):
         nonbonded_params, nonbonded_ghosts = Mutants.build_nonbonded(self, params, mutations, virt_atoms, atom_order)
         exception_params, exception_ghosts = Mutants.build_exceptions(self, params, mutations,
                                                                       h_virt_excep, exception_order)
-        bonded_params = Mutants.build_bonds(self, params, bond_order)
-        torsion_params = Mutants.build_torsions(self, params, torsion_order)
+        bonded_params = Mutants.build_bonds(self, params, mutations, bond_order)
+        torsion_params = Mutants.build_torsions(self, params, mutations, torsion_order)
 
         self.complex_params = [[x, y, z, l, k, p] for x, y, z, l, k, p
                           in zip(nonbonded_params[0], nonbonded_ghosts[0], exception_params[0], exception_ghosts[0], bonded_params[0], torsion_params[0])]
@@ -52,10 +52,13 @@ class Mutants(object):
         self.all_systems_params = [self.complex_params, self.solvent_params]
 
     def build_nonbonded(self, params, mutations, virt_atoms, atom_order):
+        #reduce to just nonbonded
+        params = copy.deepcopy([x[0] for x in params])
+
         #Reorder params from ligand only system to match solvent and complex systems
         nonbonded_params = [[], []]
         for i, (sys_atom_order, sys_offset) in enumerate(zip(atom_order, self.offset)):
-            sys_nonbonded_params = copy.deepcopy([x[0] for x in params])
+            sys_nonbonded_params = copy.deepcopy(params)
             for j, mutant_params in enumerate(sys_nonbonded_params):
                 map = {x['id']: x for x in mutant_params}
                 sys_nonbonded_params[j] = [map[int(atom - sys_offset)] for atom in sys_atom_order]
@@ -92,10 +95,27 @@ class Mutants(object):
         :param exception_order: order of vannila exceptions for complex and solvent systems
         :return:
         """
+        #reduce to just exceptions
+        params = copy.deepcopy([x[1] for x in params])
+        #find exceptions of subtracted atoms
+        excep_to_add = []
+        for i in range(len(params)):
+            atoms_to_mute = sorted(mutations[i]['subtract'])
+            exceptions = []
+            for atom_id in atoms_to_mute:
+                for excep in exception_order[0]:
+                    if atom_id+self.offset[0] in excep:
+                        exceptions.append([x-self.offset[0] for x in excep])
+            excep_to_add.append(exceptions)
+        #iterate over mutants
+        for i, x in enumerate(excep_to_add):
+            for exception in x:
+                params[i].append({'id': frozenset(exception), 'data': [0.0*ee, 0.1*nm, 0.0*kj_mol]})
+
         #reorder
         exception_params = [[], []]
         for i, (sys_excep_order, sys_offset) in enumerate(zip(exception_order, self.offset)):
-            sys_exception_params = copy.deepcopy([x[1] for x in params])
+            sys_exception_params = copy.deepcopy(params)
             for j, mutant_parmas in enumerate(sys_exception_params):
                 map = {x['id']: x for x in mutant_parmas}
                 sys_exception_params[j] = [map[frozenset(int(x-sys_offset) for x in atom)] for atom in sys_excep_order]
@@ -152,22 +172,54 @@ class Mutants(object):
         """
         return exception_params, exception_ghosts
 
-    def build_bonds(self, params, bond_order):
+    def build_bonds(self, params, mutations, bond_order):
+        #reduce to bonds only
+        params = copy.deepcopy([x[2] for x in params])
+        #find bonds of subtracted atoms
+        bonds_to_add = []
+        for i in range(len(params)):
+            atoms_to_mute = sorted(mutations[i]['subtract'])
+            bonds = []
+            for atom_id in atoms_to_mute:
+                for bond in bond_order[0]:
+                    if atom_id+self.offset[0] in bond:
+                        bonds.append([x-self.offset[0] for x in bond])
+            bonds_to_add.append(bonds)
+        #iterate over mutants
+        for i, x in enumerate(bonds_to_add):
+            for bond in x:
+                params[i].append({'id': frozenset(bond), 'data': ['BOND']})
+
         bonded_params = [[], []]
         for i, (sys_bond_order, sys_offset) in enumerate(zip(bond_order, self.offset)):
-            sys_bonded_params = copy.deepcopy([x[2] for x in params])
+            sys_bonded_params = copy.deepcopy(params)
             for j, mutant_params in enumerate(sys_bonded_params):
                 map = {x['id']: x for x in mutant_params}
                 sys_bonded_params[j] = [map[frozenset(int(x-sys_offset) for x in atom)] for atom in sys_bond_order]
                 bonded_params[i].append(sys_bonded_params[j])
-
-
         return bonded_params
 
-    def build_torsions(self, params, torsion_order):
+    def build_torsions(self, params, mutations, torsion_order):
+        #reduce to bonds only
+        params = copy.deepcopy([x[3] for x in params])
+        #find torsions of subtracted atoms
+        tor_to_add = []
+        for i in range(len(params)):
+            atoms_to_mute = sorted(mutations[i]['subtract'])
+            torsions = []
+            for atom_id in atoms_to_mute:
+                for torsion in torsion_order[0]:
+                    if atom_id+self.offset[0] in torsion:
+                        torsions.append([x-self.offset[0] for x in torsion])
+            tor_to_add.append(torsions)
+        #iterate over mutants
+        for i, x in enumerate(tor_to_add):
+            for torsion in x:
+                params[i].append({'id': frozenset(torsion), 'data': ['TORSION']})
+
         torsion_params = [[], []]
         for i, (sys_torsion_order, sys_offset) in enumerate(zip(torsion_order, self.offset)):
-            sys_torsion_params = copy.deepcopy([x[3] for x in params])
+            sys_torsion_params = copy.deepcopy(params)
             for j, mutant_params in enumerate(sys_torsion_params):
                 map = {x['id']: x for x in mutant_params}
                 sys_torsion_params[j] = [map[frozenset(int(x-sys_offset) for x in atom)] for atom in sys_torsion_order]
@@ -214,5 +266,7 @@ def unit_linspace(x, y, i):
         ans = np.linspace(x/unit1, y/unit2, i)
         ans = [x*unit1 for x in ans]
         return ans
+
+
 
 

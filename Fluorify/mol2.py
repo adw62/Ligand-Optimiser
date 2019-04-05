@@ -9,6 +9,12 @@ import numpy as np
 from simtk import unit
 import logging
 
+#CONSTANTS
+e = unit.elementary_charges
+ee = e*e
+nm = unit.nanometer
+kj_mol = unit.kilojoules_per_mole
+
 logger = logging.getLogger(__name__)
 
 class Mol2(object):
@@ -231,7 +237,6 @@ class MutatedLigand(object):
         self.system = parameters_file.createSystem(constraints=app.HBonds)
 
     def get_parameters(self, atoms_to_mute=[]):
-        #atoms to mute does not work if there are more than 2 sequential atoms to mute
         system = self.system
         nonbonded_parameters = []
         exclusion_parameters = []
@@ -251,15 +256,29 @@ class MutatedLigand(object):
         #exsclusions
         for index in range(nonbonded_force.getNumExceptions()):
             [p1, p2, chargeprod, sigma, epsilon] = nonbonded_force.getExceptionParameters(index)
-            exclusion_parameters.append({"id": frozenset((p1, p2)), "data": [chargeprod, sigma, epsilon]})
+            exclusion_parameters.append({"id": [p1, p2], "data": [chargeprod, sigma, epsilon]})
         #harmonic
         for index in range(harmonic_force.getNumBonds()):
             p1, p2, r, k = harmonic_force.getBondParameters(index)
-            bonded_parameters.append({"id": frozenset((p1, p2)), "data": [r, k]})
+            bonded_parameters.append({"id": [p1, p2], "data": [r, k]})
         #torsions
         for index in range(torsion_force.getNumTorsions()):
             p1, p2, p3, p4, period, phase, k = torsion_force.getTorsionParameters(index)
-            torsion_parameters.append({"id": frozenset((p1, p2, p3, p4)), "data": [period, phase, k]})
+            torsion_parameters.append({"id": [p1, p2, p3, p4], "data": [period, phase, k]})
+
+        #add subtracted atoms to mutant to insure one to one mapping with wild type atoms
+        atoms_to_mute = sorted(atoms_to_mute)
+        for atom_id in atoms_to_mute:
+            new_atom = {'id': atom_id, 'data': [0.0*e, 0.26*nm, 0.0*kj_mol]}
+            nonbonded_parameters = insert_atom(nonbonded_parameters, atom_id, new_atom)
+            exclusion_parameters = shift_indexes(exclusion_parameters, atom_id)
+            bonded_parameters = shift_indexes(bonded_parameters, atom_id)
+            torsion_parameters = shift_indexes(torsion_parameters, atom_id)
+
+        #freeze lists
+        exclusion_parameters = freeze_parameter_list(exclusion_parameters)
+        bonded_parameters = freeze_parameter_list(bonded_parameters)
+        torsion_parameters = freeze_parameter_list(torsion_parameters)
 
         return [nonbonded_parameters, exclusion_parameters,
                 bonded_parameters, torsion_parameters]
@@ -279,3 +298,30 @@ def run_ante(file_path, file_name, name, net_charge, gaff):
                                       net_charge=net_charge, gaff_version=gaff_version)
         moltool.amber.run_tleap(molecule_name=file_path+name, gaff_mol2_filename=file_path+name+'.gaff.mol2',
                                 frcmod_filename=file_path+name+'.frcmod', leaprc=leaprc)
+
+def insert_atom(list, position, atom):
+    new_list = []
+    shift = 0
+    for x in list:
+        index = x['id']
+        if index == position:
+            new_list.append(atom)
+            shift = 1
+        new_list.append({'id': x['id']+shift, 'data': x['data']})
+    return new_list
+
+def shift_indexes(list, position):
+    new_list = []
+    for x in list:
+        ids = x['id']
+        for i, id in enumerate(ids):
+            if id >= position:
+                ids[i] += 1
+        new_list.append({"id": ids, "data": x['data']})
+    return new_list
+
+def freeze_parameter_list(list):
+    new_list = []
+    for x in list:
+        new_list.append({"id": frozenset((x for x in x['id'])), "data": x['data']})
+    return new_list

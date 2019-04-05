@@ -142,7 +142,7 @@ class Fluorify(object):
 
         #last entry of mutant is wildtype
         mutant_parameters.append(wt_parameters)
-        mutations.append({'add': [], 'subtract': [], 'replace': [None]})
+        mutations.append({'add': [], 'subtract': [], 'replace': [None], 'replace_insitu': [None]})
 
         #TODO units and torsion
         log_param = False
@@ -214,6 +214,7 @@ class Fluorify(object):
         for i, energy in enumerate(complex_free_energy):
             atom_names = []
             replace = mutations[i]['replace']
+            replace.extend(mutations[i]['replace_insitu'])
             for atom in replace:
                 atom_index = int(atom)-1
                 atom_names.append(self.mol2_ligand_atoms[atom_index])
@@ -367,7 +368,7 @@ def add_hydroxyl(mol, new_element, auto_select, atom_list):
     #Build list of dictionaries each dict describes mutation applied corresponding system
     #TODO
     for i, mutant in enumerate(mutated_systems):
-        mutations.append({'add': [], 'subtract': [], 'replace': []})
+        mutations.append({'add': [], 'subtract': [], 'replace': [], 'replace_insitu': []})
         for atom in bonded_h[i]:
             mutations[i]['add'].append([int(atom), c_neigh, weights])
     return mutated_systems, mutations
@@ -394,7 +395,7 @@ def add_fluorines(mol, new_element, auto_select, atom_list):
 
     #Build list of dictionaries each dict describes mutation applied corresponding system
     for i, mutant in enumerate(mutated_systems):
-        mutations.append({'add': [], 'subtract': [], 'replace': []})
+        mutations.append({'add': [], 'subtract': [], 'replace': [], 'replace_insitu': []})
         for atom in bonded_h[i]:
             mutations[i]['replace'].append(int(atom))
     return mutated_systems, mutations
@@ -444,9 +445,9 @@ def add_nitrogens(mol, new_element, auto_select, atom_list, modified_atom_type=N
 
     # Build list of dictionaries, each dict describes mutation applied corresponding system
     for i, mutant in enumerate(mutated_systems):
-        mutations.append({'add': [], 'subtract': [], 'replace': []})
+        mutations.append({'add': [], 'subtract': [], 'replace': [], 'replace_insitu': []})
         for atom in carbons[i]:
-            mutations[i]['replace'].append(int(atom))
+            mutations[i]['replace_insitu'].append(int(atom))
         for atom in hydrogens_to_remove[i]:
             mutations[i]['subtract'].append(int(atom))
     return mutated_systems, mutations
