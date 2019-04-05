@@ -163,11 +163,10 @@ class Optimize(object):
         og_charges = [x[0] for x in self.wt_nonbonded]
         charges = copy.deepcopy(og_charges)
         if self.opt_res:
-            #if restart read charges from file
+            #If restart read charges from file
             file = open('charges_opt', 'r')
             logger.debug('Restarting optimisation with charges from file {}'.format(file.name))
-            og_charges = [float(line) for line in file]
-            charges = copy.deepcopy(og_charges)
+            charges = [float(line) for line in file]
             file.close()
             # run dynamics in ensemble of restart params
             exceptions = Optimize.get_charge_product(self, charges)
