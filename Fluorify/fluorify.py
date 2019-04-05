@@ -22,8 +22,8 @@ e = unit.elementary_charges
 
 class Fluorify(object):
     def __init__(self, output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name, job_type,
-                 auto_select, c_atom_list, h_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu, num_fep, equi,
-                 central_diff, opt_name, opt_steps, rmsd, opt_res):
+                 auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu,
+                 num_fep, equi, central_diff, opt_name, opt_steps, rmsd, opt_res):
 
         self.output_folder = output_folder
         self.net_charge = net_charge
@@ -109,14 +109,14 @@ class Fluorify(object):
             Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, equi, opt_name, opt_steps,
                      charge_only, central_diff, self.num_fep, rmsd, opt_res)
         else:
-            Fluorify.scanning(self, wt_ligand, auto_select, c_atom_list, h_atom_list)
+            Fluorify.scanning(self, wt_ligand, auto_select, c_atom_list, h_atom_list, o_atom_list)
 
-    def scanning(self, wt_ligand, auto_select, c_atom_list, h_atom_list):
+    def scanning(self, wt_ligand, auto_select, c_atom_list, h_atom_list, o_atom_list):
         """preparation and running scanning analysis
         """
 
         #Generate mutant systems with selected pertibations
-        mutated_systems, mutations = Fluorify.element_perturbation(self, auto_select, c_atom_list, h_atom_list)
+        mutated_systems, mutations = Fluorify.element_perturbation(self, auto_select, c_atom_list, h_atom_list, o_atom_list)
 
         """
         Write Mol2 files with substitutions of selected atoms.
@@ -243,7 +243,7 @@ class Fluorify(object):
         t1 = time.time()
         logger.debug('Took {} seconds'.format(t1 - t0))
 
-    def element_perturbation(self, auto_select, c_atom_list, h_atom_list):
+    def element_perturbation(self, auto_select, c_atom_list, h_atom_list, o_atom_list):
         """
         Takes a job_type with an auto selection or atom_lists and turns this into the correct mutated_systems
         and a list of mutations to keep track of the mutation applied to each system.
@@ -256,22 +256,28 @@ class Fluorify(object):
         job_type = self.job_type.split('x')
         c_atoms = atom_selection(c_atom_list)
         h_atoms = atom_selection(h_atom_list)
+        o_atoms = atom_selection(o_atom_list)
         if len(job_type) == 1:
             if job_type == ['N']:
                 job_type = 'N.ar'
                 if h_atoms is not None:
-                    raise ValueError('hydrogen atom list provided but pyridine scanning job requested')
+                    raise ValueError('hydrogen or oxygen atom list provided but pyridine scanning job requested')
                 mutated_systems, mutations = add_nitrogens(self.mol, job_type, auto_select, c_atoms)
             elif job_type == ['F'] or job_type == ['Cl']:
                 job_type = job_type[0]
-                if c_atoms is not None:
-                    raise ValueError('carbon atom list provided but fluorine scanning job requested')
+                if c_atoms is not None or o_atom_list is not None:
+                    raise ValueError('carbon or oxygen atom list provided but fluorine scanning job requested')
                 mutated_systems, mutations = add_fluorines(self.mol, job_type, auto_select, h_atoms)
             elif job_type == ['OH']:
                 job_type = 'O'
-                if c_atoms is not None:
+                if c_atoms is not None or o_atom_list is not None:
                     raise ValueError('carbon atom list provided but hydroxyl scanning job requested')
                 mutated_systems, mutations = add_hydroxyl(self.mol, job_type, auto_select, h_atoms)
+            elif job_type == ['S']:
+                job_type = job_type[0]
+                if c_atom_list is not None or h_atom_list is not None:
+                    raise ValueError('carbon or hydrogen atom list provided but sulphur scanning job requested')
+                mutated_systems, mutations = add_sulphurs(self.mol, job_type, auto_select, o_atoms)
             else:
                 raise ValueError('No recognised job type provided')
 
@@ -339,8 +345,9 @@ def get_coordinate_system(mutant, neighbours, h_atom):
 
 def add_hydroxyl(mol, new_element, auto_select, atom_list):
     """
-
+    Not fully implemented
     """
+    raise ValueError('Hydoxyl not fully implemented')
     mutations = []
     if atom_list is None:
         ValueError('No auto for hydroxyl')
@@ -397,6 +404,21 @@ def add_fluorines(mol, new_element, auto_select, atom_list):
     for i, mutant in enumerate(mutated_systems):
         mutations.append({'add': [], 'subtract': [], 'replace': [], 'replace_insitu': []})
         for atom in bonded_h[i]:
+            mutations[i]['replace'].append(int(atom))
+    return mutated_systems, mutations
+
+def add_sulphurs(mol, new_element, auto_select, atom_list):
+    mutations = []
+    if atom_list is None:
+        oxygen_type = 'O.' + auto_select
+        atom_list = Mol2.get_atom_by_string(mol, oxygen_type)
+    mutated_systems = Mol2.mutate(mol, atom_list, new_element)
+    #should check this is a double bonded sulphr with only carbon neighbours
+
+    #Build list of dictionaries each dict describes mutation applied corresponding system
+    for i, mutant in enumerate(mutated_systems):
+        mutations.append({'add': [], 'subtract': [], 'replace': [], 'replace_insitu': []})
+        for atom in atom_list[i]:
             mutations[i]['replace'].append(int(atom))
     return mutated_systems, mutations
 

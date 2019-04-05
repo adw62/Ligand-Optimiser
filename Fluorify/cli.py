@@ -17,7 +17,7 @@ usage = """
 FLUORIFY
 Usage:
   Fluorify [--output_folder=STRING] [--mol_name=STRING] [--ligand_name=STRING] [--complex_name=STRING] 
-           [--solvent_name=STRING] [--yaml_path=STRING] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT]
+           [--solvent_name=STRING] [--yaml_path=STRING] [--o_atom_list=LIST] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT]
            [--net_charge=INT] [--gaff_ver=INT] [--equi=INT] [--num_fep=INT] [--auto_select=STRING] [--charge_only=BOOL] 
            [--optimize=BOOL] [--num_gpu=INT] [--opt_name=STRING] [--opt_res=BOOL][--rmsd=FLOAT] [--opt_steps=INT]
            [--central_diff=BOOL] [--job_type=STRING]...
@@ -128,6 +128,7 @@ def main(argv=None):
         logger.debug('Optimizing ligand parameters...')
         c_atom_list = None
         h_atom_list = None
+        o_atom_list = None
         auto_select = None
         job_type = 'optimize'
         if args['--central_diff']:
@@ -207,6 +208,20 @@ def main(argv=None):
         else:
             h_atom_list = None
 
+        if args['--o_atom_list']:
+            o_atom_list = []
+            pairs = args['--o_atom_list']
+            pairs = pairs.replace(" ", "")
+            pairs = pairs.split('and')
+            for pair in pairs:
+                tmp = []
+                pair = pair.split(',')
+                for atom in pair:
+                    tmp.append(atom)
+                o_atom_list.append(tmp)
+        else:
+            o_atom_list = None
+
         if args['--auto_select']:
             auto_select = args['--auto_select']
             auto = ['1', '2', '3', 'ar']
@@ -215,14 +230,14 @@ def main(argv=None):
             if c_atom_list is not None or h_atom_list is not None:
                 raise ValueError('Automatic target atom selection will conflict with populated atom lists')
         else:
-            if c_atom_list is None and h_atom_list is None:
+            if c_atom_list is None and h_atom_list is None and o_atom_list is None:
                 raise ValueError('No target atoms specified')
             else:
                 auto_select = None
 
         if args['--job_type']:
             job_type = args['--job_type'][0]
-            allowed_jobs = ['F', 'Cl', 'N', 'NxF', 'NxCl', 'OH']
+            allowed_jobs = ['F', 'Cl', 'N', 'NxF', 'NxCl', 'OH', 'S']
             if job_type not in allowed_jobs:
                 raise ValueError('Allowed elements {}'.format(allowed_jobs))
         else:
@@ -249,6 +264,6 @@ def main(argv=None):
 
 
     Fluorify(output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name,
-         job_type, auto_select, c_atom_list, h_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu, num_fep, equi,
+         job_type, auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu, num_fep, equi,
              central_diff, opt_name, opt_steps, rmsd, opt_res)
 

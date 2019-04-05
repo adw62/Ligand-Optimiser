@@ -72,10 +72,10 @@ class FSim(object):
         self.torsion_list = get_ligand_info(ligand_name, snapshot, nonbonded_force, bond_force, torsion_force, system)
 
         self.virt_atom_shift = nonbonded_force.getNumParticles()
-        #Add dual topology for fluorination
+        #Add dual topology
         if not self.opt:
-            self.extended_pos, self.extended_top, self.virt_atom_order, self.h_virt_excep,\
-            self.virt_excep_shift, self.zero_exceptions, self.ghost_ligand_info = self.add_all_virtuals(system, nonbonded_force, snapshot, ligand_name)
+            self.extended_pos, self.extended_top, self.virt_atom_order, self.h_virt_excep, self.virt_excep_shift, self.zero_exceptions,\
+            self.ghost_ligand_info = self.add_all_virtual(system, nonbonded_force, bond_force, snapshot, ligand_name)
             f = open(sim_dir + sim_name + '.pdb', 'w')
             mm.app.pdbfile.PDBFile.writeFile(self.extended_top, self.extended_pos, f)
             f.close()
@@ -83,7 +83,75 @@ class FSim(object):
         self.extended_pdb = mm.app.pdbfile.PDBFile(sim_dir + sim_name + '.pdb')
         self.wt_system = system
 
-    def add_all_virtuals(self, system, nonbonded_force, snapshot, ligand_name):
+    def add_all_virtual(self, system, nonbonded_force, bonded_force, snapshot, ligand_name):
+        return FSim.add_sulphur(self, system, nonbonded_force, bonded_force, snapshot, ligand_name)
+
+    def add_sulphur(self, system, nonbonded_force, bonded_force, snapshot, ligand_name):
+        pos = list(snapshot.xyz[0]*10)
+        top = self.input_pdb.topology
+
+        bond_list = []
+        oxygen_order = []
+        carbons = list(snapshot.topology.select('element C and resname {}'.format(ligand_name)))
+        oxygens = list(snapshot.topology.select('element O and resname {}'.format(ligand_name)))
+        for index in range(bonded_force.getNumBonds()):
+            i, j, r, k = bonded_force.getBondParameters(index)
+            if i in carbons and j in oxygens:
+                bond_list.append([j, i])
+                oxygen_order.append(j-self.offset)
+            if j in carbons and i in oxygens:
+                bond_list.append([i, j])
+                oxygen_order.append(i-self.offset)
+
+        oxygen_order = sorted(oxygen_order)
+        bond_list = sorted(bond_list)
+
+        element = app.element.sulphur
+        chain = top.addChain()
+        res = top.addResidue('SUL', chain)
+        s_weight = 0.3 #1.6/1.2 Ang - 1 Ang
+
+        ligand_ghost_atoms = []
+        ligand_ghost_exceptions = []
+
+        o_exceptions = []
+        s_exceptions = []
+        for new_atom in bond_list:
+            exceptions = []
+            system.addParticle(0.00)
+            x, y, z = tuple(snapshot.xyz[0, new_atom[0], :]*10)
+            pos.extend([[x, y, z]])
+            atom_added = nonbonded_force.addParticle(0.0, 1.0, 0.0)
+            ligand_ghost_atoms.append(atom_added)
+            vs = mm.TwoParticleAverageSite(new_atom[0], new_atom[1], 1+s_weight, -s_weight)
+            system.setVirtualSite(atom_added, vs)
+            #If ligand is over 1000 atoms there will be repeated names
+            top.addAtom('S{}'.format(abs(new_atom[0]) % 1000), element, res)
+            #here the sulphur will inherited the exception of its parent oxygen
+            for exception_index in range(nonbonded_force.getNumExceptions()):
+                [iatom, jatom, chargeprod, sigma, epsilon] = nonbonded_force.getExceptionParameters(exception_index)
+                if jatom == new_atom[0]:
+                    if iatom in self.ligand_info[0]:
+                        o_exceptions.append([iatom, jatom])
+                        exceptions.append([iatom, atom_added, 0.1, 0.1, 0.1])
+                if iatom == new_atom[0]:
+                    if jatom in self.ligand_info[0]:
+                        o_exceptions.append([jatom, iatom])
+                        exceptions.append([jatom, atom_added, 0.1, 0.1, 0.1])
+            for i, exception in enumerate(exceptions):
+                idx = nonbonded_force.addException(*exception)
+                s_exceptions.append([idx, exception[0], exception[1], 0.0, 0.1, 0.0])
+                ligand_ghost_exceptions.append(idx)
+
+            nonbonded_force.addException(atom_added, new_atom[0], 0.0, 0.1, 0.0, False)
+
+        virt_excep_shift = [[x[0], y[2]-x[1]] for x, y in zip(o_exceptions, s_exceptions)]
+        o_virt_excep = [frozenset((x[0], x[1])) for x in o_exceptions]
+
+        return pos, top, oxygen_order, o_virt_excep, virt_excep_shift, s_exceptions, [ligand_ghost_atoms, ligand_ghost_exceptions]
+
+
+    def add_fluorine(self, system, nonbonded_force, snapshot, ligand_name):
         #Should I have a bond ghost, dynamics of hydrogen are coming
         #from SETTLE so is smapling FLU with this valid?
 
@@ -109,7 +177,7 @@ class FSim(object):
         element = app.element.fluorine
         chain = top.addChain()
         res = top.addResidue('FLU', chain)
-        f_weight = 1.2425 #1.363/1.097 Ang
+        f_weight = 0.24 #1.340/1.083 Ang -1 Ang
         f_charge = -0.2463
         f_sig = 0.3034222854639816
         f_eps = 0.3481087995050717
