@@ -137,12 +137,12 @@ class FSim(object):
                     #Hinders multi permu (will not add new flu, flu interactions as they not in ligand_info)
                     if iatom in self.ligand_info[0]:
                         h_exceptions.append([iatom, jatom])
-                    exceptions.append([iatom, atom_added, 0.1, 0.1, 0.1])
+                        exceptions.append([iatom, atom_added, 0.1, 0.1, 0.1])
                 if iatom == new_atom[0]:
                     # Hinders multi permu (will not add new flu, flu interactions)
                     if jatom in self.ligand_info[0]:
                         h_exceptions.append([jatom, iatom])
-                    exceptions.append([jatom, atom_added, 0.1, 0.1, 0.1])
+                        exceptions.append([jatom, atom_added, 0.1, 0.1, 0.1])
             for i, exception in enumerate(exceptions):
                 idx = nonbonded_force.addException(*exception)
                 f_exceptions.append([idx, exception[0], exception[1], 0.0, 0.1, 0.0])

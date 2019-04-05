@@ -255,7 +255,7 @@ class MutatedLigand(object):
             nonbonded_parameters.append({"id": index, "data": [charge, sigma, epsilon]})
         #exsclusions
         for index in range(nonbonded_force.getNumExceptions()):
-            [p1, p2, chargeprod, sigma, epsilon] = nonbonded_force.getExceptionParameters(index)
+            p1, p2, chargeprod, sigma, epsilon = nonbonded_force.getExceptionParameters(index)
             exclusion_parameters.append({"id": [p1, p2], "data": [chargeprod, sigma, epsilon]})
         #harmonic
         for index in range(harmonic_force.getNumBonds()):
@@ -299,6 +299,7 @@ def run_ante(file_path, file_name, name, net_charge, gaff):
         moltool.amber.run_tleap(molecule_name=file_path+name, gaff_mol2_filename=file_path+name+'.gaff.mol2',
                                 frcmod_filename=file_path+name+'.frcmod', leaprc=leaprc)
 
+
 def insert_atom(list, position, atom):
     new_list = []
     shift = 0
@@ -310,6 +311,7 @@ def insert_atom(list, position, atom):
         new_list.append({'id': x['id']+shift, 'data': x['data']})
     return new_list
 
+
 def shift_indexes(list, position):
     new_list = []
     for x in list:
@@ -319,6 +321,7 @@ def shift_indexes(list, position):
                 ids[i] += 1
         new_list.append({"id": ids, "data": x['data']})
     return new_list
+
 
 def freeze_parameter_list(list):
     new_list = []

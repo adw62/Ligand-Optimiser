@@ -13,6 +13,7 @@ e = unit.elementary_charges
 ee = e*e
 nm = unit.nanometer
 kj_mol = unit.kilojoules_per_mole
+radian = unit.radian
 
 
 class Mutants(object):
@@ -188,7 +189,7 @@ class Mutants(object):
         #iterate over mutants
         for i, x in enumerate(bonds_to_add):
             for bond in x:
-                params[i].append({'id': frozenset(bond), 'data': ['BOND']})
+                params[i].append({'id': frozenset(bond), 'data': [0.15*nm, 0.0*kj_mol/(nm**2)]})
 
         bonded_params = [[], []]
         for i, (sys_bond_order, sys_offset) in enumerate(zip(bond_order, self.offset)):
@@ -215,7 +216,7 @@ class Mutants(object):
         #iterate over mutants
         for i, x in enumerate(tor_to_add):
             for torsion in x:
-                params[i].append({'id': frozenset(torsion), 'data': ['TORSION']})
+                params[i].append({'id': frozenset(torsion), 'data': [3, 0.0*radian, 0.0*kj_mol]})
 
         torsion_params = [[], []]
         for i, (sys_torsion_order, sys_offset) in enumerate(zip(torsion_order, self.offset)):
@@ -246,6 +247,7 @@ class Mutants(object):
                                                                          interpolated_params[4], interpolated_params[5])]
         return mutant_systems
 
+
 def unit_linspace(x, y, i):
     try:
         unit1 = x.unit
@@ -266,7 +268,5 @@ def unit_linspace(x, y, i):
         ans = np.linspace(x/unit1, y/unit2, i)
         ans = [x*unit1 for x in ans]
         return ans
-
-
 
 

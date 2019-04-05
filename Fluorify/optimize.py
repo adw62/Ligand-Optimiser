@@ -16,7 +16,7 @@ ee = e*e
 
 class Optimize(object):
     def __init__(self, wt_ligand, complex_sys, solvent_sys, output_folder, num_frames, equi, name, steps,
-                 charge_only, central_diff, num_fep, rmsd):
+                 charge_only, central_diff, num_fep, rmsd, opt_res):
 
         self.complex_sys = complex_sys
         self.solvent_sys = solvent_sys
@@ -28,6 +28,7 @@ class Optimize(object):
         self.central = central_diff
         self.num_fep = num_fep
         self.rmsd = rmsd
+        self.opt_res = opt_res
         self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep,\
         self.net_charge = Optimize.build_params(self, wt_ligand)
         self.excep_scaling = Optimize.get_exception_scaling(self)
@@ -84,8 +85,9 @@ class Optimize(object):
         elif name == 'FEP_only':
             #Get optimized charges from file to calc full FEP ddG
             file = open('charges_opt', 'r')
-            logger.debug('Using charges from {}'.format(file.name))
+            logger.debug('Using charges from file {}'.format(file.name))
             opt_charges = [float(line) for line in file]
+            file.close()
 
         elif name == 'convergence_test':
             self.num_fep = 0
@@ -159,7 +161,21 @@ class Optimize(object):
 
     def scipy_opt(self):
         og_charges = [x[0] for x in self.wt_nonbonded]
-        charges = [x[0] for x in self.wt_nonbonded]
+        charges = copy.deepcopy(og_charges)
+        if self.opt_res:
+            #if restart read charges from file
+            file = open('charges_opt', 'r')
+            logger.debug('Restarting optimisation with charges from file {}'.format(file.name))
+            og_charges = [float(line) for line in file]
+            charges = copy.deepcopy(og_charges)
+            file.close()
+            # run dynamics in ensemble of restart params
+            exceptions = Optimize.get_charge_product(self, charges)
+            com_mut_param, sol_mut_param = build_opt_params([charges], [exceptions], self)
+            self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex', self.num_frames,
+                                                                            self.equi, com_mut_param[0])
+            self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent', self.num_frames,
+                                                                            self.equi, sol_mut_param[0])
         con1 = {'type': 'eq', 'fun': net_charge_con, 'args': [self.net_charge]}
         con2 = {'type': 'ineq', 'fun': rmsd_change_con, 'args': [og_charges, self.rmsd]}
         cons = [con1, con2]
@@ -178,9 +194,9 @@ class Optimize(object):
                 com_mut_param, sol_mut_param = build_opt_params([charges], [exceptions], self)
 
                 #run new dynamics with updated charges
-                self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex_step'+str(step),
+                self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex',
                                                                                 self.num_frames, self.equi, com_mut_param[0])
-                self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent_step'+str(step),
+                self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent',
                                                                                 self.num_frames, self.equi, sol_mut_param[0])
                 logger.debug('Computing reverse leg of accepted step...')
                 reverse_ddg = -1*objective(prev_charges, charges, self)
