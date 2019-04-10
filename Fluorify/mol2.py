@@ -301,14 +301,19 @@ def run_ante(file_path, file_name, name, net_charge, gaff):
 
 
 def insert_atom(list, position, atom):
+    inserted = False
     new_list = []
     shift = 0
     for x in list:
         index = x['id']
         if index == position:
+            inserted = True
             new_list.append(atom)
             shift = 1
         new_list.append({'id': x['id']+shift, 'data': x['data']})
+    if not inserted:
+        #Catches atom that need to be added to end of list
+        new_list.append(atom)
     return new_list
 
 
@@ -320,6 +325,7 @@ def shift_indexes(list, position):
             if id >= position:
                 ids[i] += 1
         new_list.append({"id": ids, "data": x['data']})
+
     return new_list
 
 
