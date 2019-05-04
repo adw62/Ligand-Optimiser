@@ -162,52 +162,32 @@ class Optimize(object):
     def scipy_opt(self):
         og_charges = [x[0] for x in self.wt_nonbonded]
         charges = copy.deepcopy(og_charges)
-        if self.opt_res:
-            #If restart read charges from file
-            file = open('charges_opt', 'r')
-            logger.debug('Restarting optimisation with charges from file {}'.format(file.name))
-            charges = [float(line) for line in file]
-            file.close()
-            # run dynamics in ensemble of restart params
-            exceptions = Optimize.get_charge_product(self, charges)
-            com_mut_param, sol_mut_param = build_opt_params([charges], [exceptions], self)
-            self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex', self.num_frames,
-                                                                            self.equi, com_mut_param[0])
-            self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent', self.num_frames,
-                                                                            self.equi, sol_mut_param[0])
         con1 = {'type': 'eq', 'fun': net_charge_con, 'args': [self.net_charge]}
         con2 = {'type': 'ineq', 'fun': rmsd_change_con, 'args': [og_charges, self.rmsd]}
         cons = [con1, con2]
-        ddg = 0.0
-        convergance_criteria = 0.1
-        converg = False
-        while converg == False:
-            for step in range(self.steps):
-                write_charges('charges_{}'.format(step), charges)
-                bounds = Optimize.get_bounds(self, charges, 0.01, 0.5)
-                sol = minimize(objective, charges, bounds=bounds, options={'maxiter': 1}, jac=gradient,
-                               args=(charges, self), constraints=cons)
-                prev_charges = charges
-                charges = sol.x
-                exceptions = Optimize.get_charge_product(self, charges)
-                com_mut_param, sol_mut_param = build_opt_params([charges], [exceptions], self)
+        ddg = 0.0 
+        for step in range(self.steps):
+            write_charges('charges_{}'.format(step), charges)
+            bounds = Optimize.get_bounds(self, charges, 0.01, 0.5)
+            sol = minimize(objective, charges, bounds=bounds, options={'maxiter': 1}, jac=gradient,
+                           args=(charges, self), constraints=cons)
+            prev_charges = charges
+            charges = sol.x
+            exceptions = Optimize.get_charge_product(self, charges)
+            com_mut_param, sol_mut_param = build_opt_params([charges], [exceptions], self)
 
-                #run new dynamics with updated charges
-                self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex',
-                                                                                self.num_frames, self.equi, com_mut_param[0])
-                self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent',
-                                                                                self.num_frames, self.equi, sol_mut_param[0])
-                logger.debug('Computing reverse leg of accepted step...')
-                reverse_ddg = -1*objective(prev_charges, charges, self)
-                logger.debug('Forward {} and reverse {} steps'.format(sol.fun, reverse_ddg))
-                ddg += (sol.fun+reverse_ddg)/2.0
-                logger.debug(sol)
-                logger.debug("Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step+1, self.steps))
-                write_charges('charges_opt', charges)
-                if sol.success == True:
-                    converg = True
-                if abs((sol.fun+reverse_ddg)/2.0) <= convergance_criteria:
-                    converg = True
+            #run new dynamics with updated charges
+            self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex',
+                                                                            self.num_frames, self.equi, com_mut_param[0])
+            self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent',
+                                                                            self.num_frames, self.equi, sol_mut_param[0])
+            logger.debug('Computing reverse leg of accepted step...')
+            reverse_ddg = -1*objective(prev_charges, charges, self)
+            logger.debug('Forward {} and reverse {} steps'.format(sol.fun, reverse_ddg))
+            ddg += (sol.fun+reverse_ddg)/2.0
+            logger.debug(sol)
+            logger.debug("Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step+1, self.steps))
+            write_charges('charges_opt', charges)    
         return list(charges), ddg
 
     def build_fep_params(self, params, windows):

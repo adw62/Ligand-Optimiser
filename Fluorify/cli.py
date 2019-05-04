@@ -19,7 +19,7 @@ Usage:
   Fluorify [--output_folder=STRING] [--mol_name=STRING] [--ligand_name=STRING] [--complex_name=STRING] 
            [--solvent_name=STRING] [--yaml_path=STRING] [--o_atom_list=LIST] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT]
            [--net_charge=INT] [--gaff_ver=INT] [--equi=INT] [--num_fep=INT] [--auto_select=STRING] [--charge_only=BOOL] 
-           [--optimize=BOOL] [--num_gpu=INT] [--opt_name=STRING] [--opt_res=BOOL][--rmsd=FLOAT] [--opt_steps=INT]
+           [--optimize=BOOL] [--num_gpu=INT] [--opt_name=STRING] [--rmsd=FLOAT] [--opt_steps=INT]
            [--central_diff=BOOL] [--job_type=STRING]...
 """
 
@@ -154,10 +154,6 @@ def main(argv=None):
         else:
             rmsd = 0.02
             logger.debug(msg.format('optimization rmsd', rmsd))
-        if args['--opt_res']:
-            opt_res = bool(args['--opt_res'])
-        else:
-            opt_res = False
     else:
         logger.debug('Scanning ligand...')
         if args['--central_diff']:
@@ -176,10 +172,6 @@ def main(argv=None):
             raise ValueError('Optimization rmsd option only compatible with an optimization')
         else:
             rmsd = None
-        if args['--opt_res']:
-            raise ValueError('Optimization restart option only compatible with an optimization')
-        else:
-            opt_res = False
         if args['--c_atom_list']:
             c_atom_list = []
             pairs = args['--c_atom_list']
@@ -237,7 +229,7 @@ def main(argv=None):
 
         if args['--job_type']:
             job_type = args['--job_type'][0]
-            allowed_jobs = ['F', 'Cl', 'N', 'NxF', 'NxCl', 'OH', 'S']
+            allowed_jobs = ['F', 'Cl', 'N', 'NxF', 'NxCl', 'S', 'VDW']
             if job_type not in allowed_jobs:
                 raise ValueError('Allowed elements {}'.format(allowed_jobs))
         else:
@@ -265,5 +257,5 @@ def main(argv=None):
 
     Fluorify(output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name,
          job_type, auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu, num_fep, equi,
-             central_diff, opt_name, opt_steps, rmsd, opt_res)
+             central_diff, opt_name, opt_steps, rmsd)
 

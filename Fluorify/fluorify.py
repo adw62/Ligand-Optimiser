@@ -23,7 +23,7 @@ e = unit.elementary_charges
 class Fluorify(object):
     def __init__(self, output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name, job_type,
                  auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu,
-                 num_fep, equi, central_diff, opt_name, opt_steps, rmsd, opt_res):
+                 num_fep, equi, central_diff, opt_name, opt_steps, rmsd):
 
         self.output_folder = output_folder
         self.net_charge = net_charge
@@ -107,7 +107,7 @@ class Fluorify(object):
 
         if opt:
             Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, equi, opt_name, opt_steps,
-                     charge_only, central_diff, self.num_fep, rmsd, opt_res)
+                     charge_only, central_diff, self.num_fep, rmsd)
         else:
             Fluorify.scanning(self, wt_ligand, auto_select, c_atom_list, h_atom_list, o_atom_list)
 
@@ -278,6 +278,11 @@ class Fluorify(object):
                 if c_atom_list is not None or h_atom_list is not None:
                     raise ValueError('carbon or hydrogen atom list provided but sulphur scanning job requested')
                 mutated_systems, mutations = add_sulphurs(self.mol, job_type, auto_select, o_atoms)
+            elif job_type == ['VDW']:
+                job_type = 'H'
+                if c_atoms is not None or o_atom_list is not None:
+                    raise ValueError('carbon or oxygen atom list provided but VDW scanning job requested')
+                mutated_systems, mutations = add_fluorines(self.mol, job_type, auto_select, h_atoms)
             else:
                 raise ValueError('No recognised job type provided')
 

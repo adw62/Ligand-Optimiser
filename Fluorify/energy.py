@@ -84,7 +84,7 @@ class FSim(object):
         self.wt_system = system
 
     def add_all_virtual(self, system, nonbonded_force, bonded_force, snapshot, ligand_name):
-        return FSim.add_sulphur(self, system, nonbonded_force, bonded_force, snapshot, ligand_name)
+        return FSim.add_fluorine(self, system, nonbonded_force, snapshot, ligand_name)
 
     def add_sulphur(self, system, nonbonded_force, bonded_force, snapshot, ligand_name):
         pos = list(snapshot.xyz[0]*10)
@@ -109,7 +109,7 @@ class FSim(object):
         element = app.element.sulphur
         chain = top.addChain()
         res = top.addResidue('SUL', chain)
-        s_weight = 0.3 #1.6/1.2 Ang - 1 Ang
+        s_weight = 0.3 #1.6Ang/1.2Ang - 1
 
         ligand_ghost_atoms = []
         ligand_ghost_exceptions = []
@@ -152,9 +152,6 @@ class FSim(object):
 
 
     def add_fluorine(self, system, nonbonded_force, snapshot, ligand_name):
-        #Should I have a bond ghost, dynamics of hydrogen are coming
-        #from SETTLE so is smapling FLU with this valid?
-
         pos = list(snapshot.xyz[0]*10)
         top = self.input_pdb.topology
 
@@ -177,10 +174,10 @@ class FSim(object):
         element = app.element.fluorine
         chain = top.addChain()
         res = top.addResidue('FLU', chain)
-        f_weight = 0.24 #1.340/1.083 Ang -1 Ang
-        f_charge = -0.2463
-        f_sig = 0.3034222854639816
-        f_eps = 0.3481087995050717
+        f_weight = 0.5 #1.340Ang/1.083Ang -1 = 0.24
+        #f_charge = -0.2463
+        #f_sig = 0.3034222854639816
+        #f_eps = 0.3481087995050717
 
         ligand_ghost_atoms = []
         ligand_ghost_exceptions = []
