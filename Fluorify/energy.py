@@ -174,7 +174,7 @@ class FSim(object):
         element = app.element.fluorine
         chain = top.addChain()
         res = top.addResidue('FLU', chain)
-        f_weight = 0.5 #1.340Ang/1.083Ang -1 = 0.24
+        f_weight = 0.24 #1.340Ang/1.083Ang -1 = 0.24
         #f_charge = -0.2463
         #f_sig = 0.3034222854639816
         #f_eps = 0.3481087995050717
