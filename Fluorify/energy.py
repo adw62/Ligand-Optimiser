@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 kB = 0.008314472471220214 * unit.kilojoules_per_mole/unit.kelvin
 
 class FSim(object):
-    def __init__(self, ligand_name, sim_name, input_folder, charge_only, num_gpu, offset, opt, temperature=300*unit.kelvin,
+    def __init__(self, ligand_name, sim_name, input_folder, charge_only, vdw_only, num_gpu, offset, opt, temperature=300*unit.kelvin,
                  friction=0.3/unit.picosecond, timestep=2.0*unit.femtosecond):
         """ A class for creating OpenMM context from input files and calculating free energy
         change when modifying the parameters of the system in the context.
@@ -38,6 +38,7 @@ class FSim(object):
         self.offset = int(offset)
         self.opt = opt
         self.charge_only = charge_only
+        self.vdw_only = vdw_only
         self.name = sim_name
         self.kT = kB * self.temperature
         kcal = 4.1868 * unit.kilojoules_per_mole
@@ -223,8 +224,7 @@ class FSim(object):
     def run_parallel_fep(self, mutant_params, system_idx, mutant_idx, n_steps, n_iterations, windows):
         logger.debug('Computing FEP for {}...'.format(self.name))
         if not self.opt:
-            mutant_systems = mutant_params.build_fep_systems(system_idx, mutant_idx, windows,
-                                                             opt=self.opt, charge_only=self.charge_only)
+            mutant_systems = mutant_params.build_fep_systems(system_idx, mutant_idx, windows)
         else:
             mutant_systems = mutant_params
 
@@ -317,9 +317,11 @@ class FSim(object):
             if atom != params[i]['id']+self.offset:
                 raise (ValueError('Fluorify has failed to generate nonbonded parameters(0) correctly please raise '
                                   'this as and issue at https://github.com/adw62/Fluorify'))
+            charge, sigma, epsilon = force.getParticleParameters(atom)
             if self.charge_only:
-                charge, sigma, epsilon = force.getParticleParameters(atom)
-                force.setParticleParameters(atom, nonbonded_params, sigma, epsilon)
+                force.setParticleParameters(atom, nonbonded_params[0], sigma, epsilon)
+            elif self.vdw_only:
+                force.setParticleParameters(atom, charge, nonbonded_params[1], nonbonded_params[2])
             else:
                 force.setParticleParameters(atom, nonbonded_params[0], nonbonded_params[1], nonbonded_params[2])
 
@@ -330,9 +332,11 @@ class FSim(object):
                 if atom != int(ghost_params[i]['id']):
                     raise (ValueError('Fluorify has failed to generate nonbonded parameters(1) correctly please raise '
                                       'this as and issue at https://github.com/adw62/Fluorify'))
+                charge, sigma, epsilon = force.getParticleParameters(atom)
                 if self.charge_only:
-                    charge, sigma, epsilon = force.getParticleParameters(atom)
                     force.setParticleParameters(index, nonbonded_params[0], sigma, epsilon)
+                elif self.vdw_only:
+                    force.setParticleParameters(atom, charge, nonbonded_params[1], nonbonded_params[2])
                 else:
                     force.setParticleParameters(index, nonbonded_params[0], nonbonded_params[1], nonbonded_params[2])
 
@@ -345,7 +349,9 @@ class FSim(object):
                 raise (ValueError('Fluorify has failed to generate nonbonded parameters(2) correctly please raise '
                                   'this as and issue at https://github.com/adw62/Fluorify'))
             if self.charge_only:
-                force.setExceptionParameters(excep_idx, p1, p2, excep_params, sigma, eps)
+                force.setExceptionParameters(excep_idx, p1, p2, excep_params[0], sigma, eps)
+            elif self.vdw_only:
+                force.setExceptionParameters(excep_idx, p1, p2, charge_prod, excep_params[1], excep_params[2])
             else:
                 force.setExceptionParameters(excep_idx, p1, p2, excep_params[0], excep_params[1], excep_params[2])
         if not self.opt:
@@ -359,6 +365,8 @@ class FSim(object):
                                       'this as and issue at https://github.com/adw62/Fluorify'))
                 if self.charge_only:
                     force.setExceptionParameters(excep_idx, p1, p2, excep_params[0], sigma, eps)
+                elif self.vdw_only:
+                    force.setExceptionParameters(excep_idx, p1, p2, charge_prod, excep_params[1], excep_params[2])
                 else:
                     force.setExceptionParameters(excep_idx, p1, p2, excep_params[0], excep_params[1], excep_params[2])
 

@@ -227,7 +227,7 @@ class Mutants(object):
                 torsion_params[i].append(sys_torsion_params[j])
         return torsion_params
 
-    def build_fep_systems(self, system_idx, mutant_idx, windows, opt, charge_only):
+    def build_fep_systems(self, system_idx, mutant_idx, windows):
         #build interpolated params
         interpolated_params = []
         for wt_force, mut_force in zip(self.all_systems_params[system_idx][-1], self.all_systems_params[system_idx][mutant_idx]):
