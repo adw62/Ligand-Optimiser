@@ -16,10 +16,11 @@ logger = logging.getLogger(__name__)
 usage = """
 FLUORIFY
 Usage:
-  Fluorify [--output_folder=STRING] [--mol_name=STRING] [--ligand_name=STRING] [--complex_name=STRING] [--solvent_name=STRING]
-            [--yaml_path=STRING] [--o_atom_list=LIST] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT] [--net_charge=INT]
-            [--gaff_ver=INT] [--equi=INT] [--num_fep=INT] [--auto_select=STRING] [--charge_only=BOOL] [--vdw_only=BOOL] [--optimize=BOOL]
-            [--num_gpu=INT] [--opt_name=STRING] [--rmsd=FLOAT] [--opt_steps=INT] [--central_diff=BOOL] [--job_type=STRING]...
+  Fluorify [--output_folder=STRING] [--mol_name=STRING] [--ligand_name=STRING] [--complex_name=STRING] 
+           [--solvent_name=STRING] [--yaml_path=STRING] [--o_atom_list=LIST] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT]
+           [--net_charge=INT] [--gaff_ver=INT] [--equi=INT] [--num_fep=INT] [--auto_select=STRING] [--charge_only=BOOL] 
+           [--optimize=BOOL] [--num_gpu=INT] [--opt_name=STRING] [--rmsd=FLOAT] [--opt_steps=INT]
+           [--central_diff=BOOL] [--job_type=STRING]...
 """
 
 
@@ -114,16 +115,8 @@ def main(argv=None):
         charge_only = int(args['--charge_only'])
     else:
         charge_only = False
-    if args['--vdw_only']:
-        vdw_only = int(args['--vdw_only'])
-    else:
-        vdw_only = False
-    if charge_only and vdw_only:
-        raise ValueError('charge_only and vdw_only conflicting options')
     if charge_only == True:
         logger.debug('Mutating ligand charges only...')
-    elif vdw_only == True:
-        logger.debug('Mutating ligand VDW only...')
     else:
         logger.debug('Mutating all ligand parameters...')
 
@@ -143,7 +136,7 @@ def main(argv=None):
         else:
             central_diff = True
             logger.debug(msg.format('finite difference method', 'central difference'))
-        optimizer_names = ['scipy', 'FEP_only', 'convergence_test']
+        optimizer_names = ['scipy', 'FEP_only', 'SSP_convergence_test', 'FEP_convergence_test']
         if args['--opt_name']:
             opt_name = args['--opt_name']
             if opt_name not in optimizer_names:
@@ -236,7 +229,7 @@ def main(argv=None):
 
         if args['--job_type']:
             job_type = args['--job_type'][0]
-            allowed_jobs = ['F', 'Cl', 'N', 'NxF', 'NxCl', 'S', 'VDW']
+            allowed_jobs = ['F', 'Cl', 'N', 'NxF', 'NxCl', 'OH', 'S']
             if job_type not in allowed_jobs:
                 raise ValueError('Allowed elements {}'.format(allowed_jobs))
         else:
@@ -263,6 +256,6 @@ def main(argv=None):
 
 
     Fluorify(output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name,
-         job_type, auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, vdw_only, gaff_ver,
-             opt, num_gpu, num_fep, equi, central_diff, opt_name, opt_steps, rmsd)
+         job_type, auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu, num_fep, equi,
+             central_diff, opt_name, opt_steps, rmsd)
 

@@ -22,7 +22,7 @@ e = unit.elementary_charges
 
 class Fluorify(object):
     def __init__(self, output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name, job_type,
-                 auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, vdw_only, gaff_ver, opt, num_gpu,
+                 auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu,
                  num_fep, equi, central_diff, opt_name, opt_steps, rmsd):
 
         self.output_folder = output_folder
@@ -78,32 +78,37 @@ class Fluorify(object):
                                   net_charge=self.net_charge, gaff=self.gaff_ver)
 
         logger.debug('Loading complex and solvent systems...')
+        if opt == True:
+            if opt_name == 'SSP_convergence_test' or opt_name == 'FEP_convergence_test':
+                run_dynamics = False
         #COMPLEX
         self.complex_sys = []
         self.complex_sys.append(FSim(ligand_name=ligand_name, sim_name=complex_name, input_folder=input_folder,
-                                     charge_only=charge_only, vdw_only=vdw_only, num_gpu=num_gpu, offset=self.complex_offset, opt=opt))
+                                     charge_only=charge_only, num_gpu=num_gpu, offset=self.complex_offset, opt=opt))
         self.complex_sys.append([complex_sim_dir + complex_name + '.dcd'])
         self.complex_sys.append(complex_sim_dir + complex_name + '.pdb')
-        if not os.path.isfile(self.complex_sys[1][0]):
-            self.complex_sys[1] = [complex_sim_dir + complex_name + '_gpu' + str(x) + '.dcd' for x in range(num_gpu)]
-            for name in self.complex_sys[1]:
-                if not os.path.isfile(name):
-                    self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(complex_sim_dir, complex_name,
-                                                                                    self.num_frames, equi, None)
-                    break
+        if run_dynamics:
+            if not os.path.isfile(self.complex_sys[1][0]):
+                self.complex_sys[1] = [complex_sim_dir + complex_name + '_gpu' + str(x) + '.dcd' for x in range(num_gpu)]
+                for name in self.complex_sys[1]:
+                    if not os.path.isfile(name):
+                        self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(complex_sim_dir, complex_name,
+                                                                                        self.num_frames, equi, None)
+                        break
         #SOLVENT
         self.solvent_sys = []
         self.solvent_sys.append(FSim(ligand_name=ligand_name, sim_name=solvent_name, input_folder=input_folder,
-                                     charge_only=charge_only, vdw_only=vdw_only, num_gpu=num_gpu, offset=self.solvent_offset, opt=opt))
+                                     charge_only=charge_only, num_gpu=num_gpu, offset=self.solvent_offset, opt=opt))
         self.solvent_sys.append([solvent_sim_dir + solvent_name + '.dcd'])
         self.solvent_sys.append(solvent_sim_dir + solvent_name + '.pdb')
-        if not os.path.isfile(self.solvent_sys[1][0]):
-            self.solvent_sys[1] = [solvent_sim_dir + solvent_name + '_gpu' + str(x) + '.dcd' for x in range(num_gpu)]
-            for name in self.solvent_sys[1]:
-                if not os.path.isfile(name):
-                    self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(solvent_sim_dir, solvent_name,
-                                                                                    self.num_frames, equi, None)
-                    break
+        if run_dynamics:
+            if not os.path.isfile(self.solvent_sys[1][0]):
+                self.solvent_sys[1] = [solvent_sim_dir + solvent_name + '_gpu' + str(x) + '.dcd' for x in range(num_gpu)]
+                for name in self.solvent_sys[1]:
+                    if not os.path.isfile(name):
+                        self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(solvent_sim_dir, solvent_name,
+                                                                                        self.num_frames, equi, None)
+                        break
 
         if opt:
             Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, equi, opt_name, opt_steps,
@@ -220,9 +225,11 @@ class Fluorify(object):
                 atom_names.append(self.mol2_ligand_atoms[atom_index])
             binding_free_energy = energy - solvent_free_energy[i]
             best_mutants.append([binding_free_energy, atom_names, i])
+            logger.debug('dGs for molecule{}.mol2 with'
+                  ' {} substituted for {} complex dG = {}, solvent dG = {}'.format(str(i), atom_names, self.job_type,
+                                                                                   energy, solvent_free_energy[i]))
             logger.debug('ddG for molecule{}.mol2 with'
                   ' {} substituted for {} = {}'.format(str(i), atom_names, self.job_type, binding_free_energy))
-            logger.debug('complex free energy = {}, solvent free enegy {}'.format(energy, solvent_free_energy[i]))
         best_mutants = sorted(best_mutants)
         t1 = time.time()
         logger.debug('Took {} seconds'.format(t1 - t0))
@@ -279,11 +286,6 @@ class Fluorify(object):
                 if c_atom_list is not None or h_atom_list is not None:
                     raise ValueError('carbon or hydrogen atom list provided but sulphur scanning job requested')
                 mutated_systems, mutations = add_sulphurs(self.mol, job_type, auto_select, o_atoms)
-            elif job_type == ['VDW']:
-                job_type = 'H'
-                if c_atoms is not None or o_atom_list is not None:
-                    raise ValueError('carbon or oxygen atom list provided but VDW scanning job requested')
-                mutated_systems, mutations = add_fluorines(self.mol, job_type, auto_select, h_atoms)
             else:
                 raise ValueError('No recognised job type provided')
 

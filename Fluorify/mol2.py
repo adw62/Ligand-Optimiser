@@ -325,7 +325,6 @@ def shift_indexes(list, position):
             if id >= position:
                 ids[i] += 1
         new_list.append({"id": ids, "data": x['data']})
-
     return new_list
 
 

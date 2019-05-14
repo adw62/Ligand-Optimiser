@@ -12,17 +12,18 @@ from functools import partial
 from multiprocess import Pool
 import logging
 
-from .mutants import Mutants
-
 from pymbar import MBAR, timeseries
 
 logger = logging.getLogger(__name__)
 
 # CONSTANTS #
 kB = 0.008314472471220214 * unit.kilojoules_per_mole/unit.kelvin
+nm = unit.nanometer
+kj_mol = unit.kilojoules_per_mole
+
 
 class FSim(object):
-    def __init__(self, ligand_name, sim_name, input_folder, charge_only, vdw_only, num_gpu, offset, opt, temperature=300*unit.kelvin,
+    def __init__(self, ligand_name, sim_name, input_folder, charge_only, num_gpu, offset, opt, temperature=300*unit.kelvin,
                  friction=0.3/unit.picosecond, timestep=2.0*unit.femtosecond):
         """ A class for creating OpenMM context from input files and calculating free energy
         change when modifying the parameters of the system in the context.
@@ -38,7 +39,6 @@ class FSim(object):
         self.offset = int(offset)
         self.opt = opt
         self.charge_only = charge_only
-        self.vdw_only = vdw_only
         self.name = sim_name
         self.kT = kB * self.temperature
         kcal = 4.1868 * unit.kilojoules_per_mole
@@ -85,7 +85,7 @@ class FSim(object):
         self.wt_system = system
 
     def add_all_virtual(self, system, nonbonded_force, bonded_force, snapshot, ligand_name):
-        return FSim.add_fluorine(self, system, nonbonded_force, snapshot, ligand_name)
+        return FSim.add_sulphur(self, system, nonbonded_force, bonded_force, snapshot, ligand_name)
 
     def add_sulphur(self, system, nonbonded_force, bonded_force, snapshot, ligand_name):
         pos = list(snapshot.xyz[0]*10)
@@ -110,9 +110,10 @@ class FSim(object):
         element = app.element.sulphur
         chain = top.addChain()
         res = top.addResidue('SUL', chain)
-        s_weight = 0.3 #1.6Ang/1.2Ang - 1
+        s_weight = 0.3 #1.6/1.2 Ang - 1 Ang
 
         ligand_ghost_atoms = []
+        ligand_ghost_bonds = []
         ligand_ghost_exceptions = []
 
         o_exceptions = []
@@ -123,11 +124,17 @@ class FSim(object):
             x, y, z = tuple(snapshot.xyz[0, new_atom[0], :]*10)
             pos.extend([[x, y, z]])
             atom_added = nonbonded_force.addParticle(0.0, 1.0, 0.0)
+            bonded_force.addBond(atom_added, new_atom[1], 0.15*nm, 0.0*kj_mol/(nm**2))
             ligand_ghost_atoms.append(atom_added)
+            ligand_ghost_bonds.append([new_atom[1], atom_added])
             vs = mm.TwoParticleAverageSite(new_atom[0], new_atom[1], 1+s_weight, -s_weight)
             system.setVirtualSite(atom_added, vs)
             #If ligand is over 1000 atoms there will be repeated names
-            top.addAtom('S{}'.format(abs(new_atom[0]) % 1000), element, res)
+            atom1 = top.addAtom('S{}'.format(abs(new_atom[0]) % 1000), element, res)
+            for x in top.atoms():
+                if x.index == new_atom[1]:
+                    atom2 = x
+            top.addBond(atom1, atom2)
             #here the sulphur will inherited the exception of its parent oxygen
             for exception_index in range(nonbonded_force.getNumExceptions()):
                 [iatom, jatom, chargeprod, sigma, epsilon] = nonbonded_force.getExceptionParameters(exception_index)
@@ -149,10 +156,13 @@ class FSim(object):
         virt_excep_shift = [[x[0], y[2]-x[1]] for x, y in zip(o_exceptions, s_exceptions)]
         o_virt_excep = [frozenset((x[0], x[1])) for x in o_exceptions]
 
-        return pos, top, oxygen_order, o_virt_excep, virt_excep_shift, s_exceptions, [ligand_ghost_atoms, ligand_ghost_exceptions]
+        return pos, top, oxygen_order, o_virt_excep, virt_excep_shift, s_exceptions, [ligand_ghost_atoms, ligand_ghost_exceptions, ligand_ghost_bonds]
 
 
     def add_fluorine(self, system, nonbonded_force, snapshot, ligand_name):
+        #Should I have a bond ghost, dynamics of hydrogen are coming
+        #from SETTLE so is smapling FLU with this valid?
+
         pos = list(snapshot.xyz[0]*10)
         top = self.input_pdb.topology
 
@@ -175,10 +185,10 @@ class FSim(object):
         element = app.element.fluorine
         chain = top.addChain()
         res = top.addResidue('FLU', chain)
-        f_weight = 0.24 #1.340Ang/1.083Ang -1 = 0.24
-        #f_charge = -0.2463
-        #f_sig = 0.3034222854639816
-        #f_eps = 0.3481087995050717
+        f_weight = 0.24 #1.340/1.083 Ang -1 Ang
+        f_charge = -0.2463
+        f_sig = 0.3034222854639816
+        f_eps = 0.3481087995050717
 
         ligand_ghost_atoms = []
         ligand_ghost_exceptions = []
@@ -224,7 +234,8 @@ class FSim(object):
     def run_parallel_fep(self, mutant_params, system_idx, mutant_idx, n_steps, n_iterations, windows):
         logger.debug('Computing FEP for {}...'.format(self.name))
         if not self.opt:
-            mutant_systems = mutant_params.build_fep_systems(system_idx, mutant_idx, windows)
+            mutant_systems = mutant_params.build_fep_systems(system_idx, mutant_idx, windows,
+                                                             opt=self.opt, charge_only=self.charge_only)
         else:
             mutant_systems = mutant_params
 
@@ -317,11 +328,9 @@ class FSim(object):
             if atom != params[i]['id']+self.offset:
                 raise (ValueError('Fluorify has failed to generate nonbonded parameters(0) correctly please raise '
                                   'this as and issue at https://github.com/adw62/Fluorify'))
-            charge, sigma, epsilon = force.getParticleParameters(atom)
             if self.charge_only:
-                force.setParticleParameters(atom, nonbonded_params[0], sigma, epsilon)
-            elif self.vdw_only:
-                force.setParticleParameters(atom, charge, nonbonded_params[1], nonbonded_params[2])
+                charge, sigma, epsilon = force.getParticleParameters(atom)
+                force.setParticleParameters(atom, nonbonded_params, sigma, epsilon)
             else:
                 force.setParticleParameters(atom, nonbonded_params[0], nonbonded_params[1], nonbonded_params[2])
 
@@ -332,11 +341,9 @@ class FSim(object):
                 if atom != int(ghost_params[i]['id']):
                     raise (ValueError('Fluorify has failed to generate nonbonded parameters(1) correctly please raise '
                                       'this as and issue at https://github.com/adw62/Fluorify'))
-                charge, sigma, epsilon = force.getParticleParameters(atom)
                 if self.charge_only:
+                    charge, sigma, epsilon = force.getParticleParameters(atom)
                     force.setParticleParameters(index, nonbonded_params[0], sigma, epsilon)
-                elif self.vdw_only:
-                    force.setParticleParameters(atom, charge, nonbonded_params[1], nonbonded_params[2])
                 else:
                     force.setParticleParameters(index, nonbonded_params[0], nonbonded_params[1], nonbonded_params[2])
 
@@ -349,9 +356,7 @@ class FSim(object):
                 raise (ValueError('Fluorify has failed to generate nonbonded parameters(2) correctly please raise '
                                   'this as and issue at https://github.com/adw62/Fluorify'))
             if self.charge_only:
-                force.setExceptionParameters(excep_idx, p1, p2, excep_params[0], sigma, eps)
-            elif self.vdw_only:
-                force.setExceptionParameters(excep_idx, p1, p2, charge_prod, excep_params[1], excep_params[2])
+                force.setExceptionParameters(excep_idx, p1, p2, excep_params, sigma, eps)
             else:
                 force.setExceptionParameters(excep_idx, p1, p2, excep_params[0], excep_params[1], excep_params[2])
         if not self.opt:
@@ -365,8 +370,6 @@ class FSim(object):
                                       'this as and issue at https://github.com/adw62/Fluorify'))
                 if self.charge_only:
                     force.setExceptionParameters(excep_idx, p1, p2, excep_params[0], sigma, eps)
-                elif self.vdw_only:
-                    force.setExceptionParameters(excep_idx, p1, p2, charge_prod, excep_params[1], excep_params[2])
                 else:
                     force.setExceptionParameters(excep_idx, p1, p2, excep_params[0], excep_params[1], excep_params[2])
 

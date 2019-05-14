@@ -7,6 +7,7 @@ from scipy.optimize import minimize
 import copy
 import logging
 import numpy as np
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ ee = e*e
 
 class Optimize(object):
     def __init__(self, wt_ligand, complex_sys, solvent_sys, output_folder, num_frames, equi, name, steps,
-                 charge_only, central_diff, num_fep, rmsd, opt_res):
+                 charge_only, central_diff, num_fep, rmsd):
 
         self.complex_sys = complex_sys
         self.solvent_sys = solvent_sys
@@ -28,7 +29,6 @@ class Optimize(object):
         self.central = central_diff
         self.num_fep = num_fep
         self.rmsd = rmsd
-        self.opt_res = opt_res
         self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep,\
         self.net_charge = Optimize.build_params(self, wt_ligand)
         self.excep_scaling = Optimize.get_exception_scaling(self)
@@ -89,19 +89,11 @@ class Optimize(object):
             opt_charges = [float(line) for line in file]
             file.close()
 
-        elif name == 'convergence_test':
+        elif name == 'SSP_convergence_test':
             self.num_fep = 0
-            perturbation = 0.01
-            sampling = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+            sampling = [10, 20, 30, 40, 50, 60, 70, 80, 90]
             og_charges = [x[0] for x in self.wt_nonbonded]
-            peturb_charges = copy.deepcopy(og_charges)
-            for i in range(0, int(np.ceil(len(peturb_charges) / 2))):
-                peturb_charges[i] = peturb_charges[i] + perturbation
-            for i in range(int(len(peturb_charges) / 2), int(len(peturb_charges))):
-                peturb_charges[i] = peturb_charges[i] - perturbation
-            logger.debug('og net charge {}, perturbed net charge {}'.format(sum(og_charges), sum(peturb_charges)))
-            if round(sum(og_charges), 5) != round(sum(peturb_charges), 5):
-                raise ValueError('Net charge change')
+            peturb_charges = Optimize.build_perturbed_test_charges(self, 0.01)
             exceptions = Optimize.get_charge_product(self, og_charges)
             com_mut_param, sol_mut_param = build_opt_params([og_charges], [exceptions], self)
             for num_frames in sampling:
@@ -113,21 +105,47 @@ class Optimize(object):
                                                                                     self.equi, sol_mut_param[0])
 
                     ddG = objective(og_charges, peturb_charges, self)
-                    logger.debug('ddG Fluorine Scanning for {} frames for replica {} = {} kcal/mol'.format(num_frames, replica, ddG))
+                    logger.debug('ddG Fluorine Scanning for {} frames for replica {} = {}'.format(num_frames, replica, ddG))
+
+        elif name == 'FEP_convergence_test':
+            sampling = [10, 20, 30, 40, 50, 60, 70, 80, 90]
+            peturb_charges = Optimize.build_perturbed_test_charges(self, 0.01)
+            for num_frames in sampling:
+                for replica in range(self.num_fep):
+                    logger.debug('Replica {}/{}'.format(replica+1, self.num_fep))
+                    steps = math.ceil((num_frames*2500)/(50*12))
+                    complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, peturb_charges, steps)
+                    ddg_fep = complex_dg - solvent_dg
+                    ddg_error = (complex_error ** 2 + solvent_error ** 2) ** 0.5
+                    logger.debug('ddG FEP for frames {} for replica {} = {} +- {}'.format(num_frames, replica, ddg_fep, ddg_error))
 
         else:
             raise ValueError('No other optimizers implemented')
 
-        for replica in range(self.num_fep):
-            logger.debug('Replica {}/{}'.format(replica+1, self.num_fep))
-            complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, opt_charges)
-            ddg_fep = complex_dg - solvent_dg
-            ddg_error = (complex_error ** 2 + solvent_error ** 2) ** 0.5
-            logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
-        if name != 'FEP_only' and name != 'convergence_test':
-            logger.debug('ddG Fluorine Scanning = {}'.format(ddg_fs))
+        if name != 'SSP_convergence_test' and name != 'FEP_convergence_test':
+            for replica in range(self.num_fep):
+                logger.debug('Replica {}/{}'.format(replica+1, self.num_fep))
+                complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, opt_charges, steps)
+                ddg_fep = complex_dg - solvent_dg
+                ddg_error = (complex_error ** 2 + solvent_error ** 2) ** 0.5
+                logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
 
-    def run_fep(self, opt_charges):
+            if name == 'FEP_only':
+                logger.debug('ddG Fluorine Scanning = {}'.format(ddg_fs))
+
+    def build_perturbed_test_charges(self, perturbation):
+        og_charges = [x[0] for x in self.wt_nonbonded]
+        peturb_charges = copy.deepcopy(og_charges)
+        for i in range(0, int(np.ceil(len(peturb_charges) / 2))):
+            peturb_charges[i] = peturb_charges[i] + perturbation
+        for i in range(int(len(peturb_charges) / 2), int(len(peturb_charges))):
+            peturb_charges[i] = peturb_charges[i] - perturbation
+        logger.debug('og net charge {}, perturbed net charge {}'.format(sum(og_charges), sum(peturb_charges)))
+        if round(sum(og_charges), 5) != round(sum(peturb_charges), 5):
+            raise ValueError('Net charge change')
+        return peturb_charges
+
+    def run_fep(self, opt_charges, steps):
         original_charges = [x[0] for x in self.wt_nonbonded]
         opt_exceptions = Optimize.get_charge_product(self, opt_charges)
         logger.debug('Original charges: {}'.format(original_charges))
@@ -138,10 +156,9 @@ class Optimize(object):
         com_fep_params = Optimize.build_fep_params(self, com_mut_param, 12)
         sol_fep_params = Optimize.build_fep_params(self, sol_mut_param, 12)
         complex_dg, complex_error = self.complex_sys[0].run_parallel_fep(com_fep_params,
-                                                                         None, None, 20000, 50, None)
+                                                                         None, None, steps, 50, None)
         solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(sol_fep_params,
-                                                                         None, None, 20000, 50, None)
-
+                                                                         None, None, steps, 50, None)
         return complex_dg, complex_error, solvent_dg, solvent_error
 
 
@@ -158,14 +175,13 @@ class Optimize(object):
                 bnds.append((y-periter_change, y+periter_change))
         return bnds
 
-
     def scipy_opt(self):
         og_charges = [x[0] for x in self.wt_nonbonded]
         charges = copy.deepcopy(og_charges)
         con1 = {'type': 'eq', 'fun': net_charge_con, 'args': [self.net_charge]}
         con2 = {'type': 'ineq', 'fun': rmsd_change_con, 'args': [og_charges, self.rmsd]}
         cons = [con1, con2]
-        ddg = 0.0 
+        ddg = 0.0
         for step in range(self.steps):
             write_charges('charges_{}'.format(step), charges)
             bounds = Optimize.get_bounds(self, charges, 0.01, 0.5)
@@ -187,7 +203,7 @@ class Optimize(object):
             ddg += (sol.fun+reverse_ddg)/2.0
             logger.debug(sol)
             logger.debug("Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step+1, self.steps))
-            write_charges('charges_opt', charges)    
+            write_charges('charges_opt', charges)
         return list(charges), ddg
 
     def build_fep_params(self, params, windows):
