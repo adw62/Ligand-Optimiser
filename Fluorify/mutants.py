@@ -156,7 +156,7 @@ class Mutants(object):
                     for atom in atom_idxs:
                         atom = int(atom-1)
                         for k, excep1 in enumerate(mutant_parmas):
-                            #Hinders multi permu (killing non cross terms)
+                            #Hinders multi permu (killing cross terms)
                             if atom not in excep1['id']:
                                 exception_ghosts[i][j][k]['data'] = zero
                 else:
@@ -198,6 +198,7 @@ class Mutants(object):
                 map = {x['id']: x for x in mutant_params}
                 sys_bonded_params[j] = [map[frozenset(int(x-sys_offset) for x in atom)] for atom in sys_bond_order]
                 bonded_params[i].append(sys_bonded_params[j])
+
         """
         # Build ghost bonds
         bond_ghosts = copy.deepcopy(bonded_params)
@@ -206,6 +207,7 @@ class Mutants(object):
                 map = {x['id']: x for x in mutant_parmas}
                 bond_ghosts[i][j] = [map[frozenset(int(x - sys_offset) for x in atom)] for atom in sys_virt_order]
         """
+
         return bonded_params
 
     def build_torsions(self, params, mutations, torsion_order):
@@ -235,7 +237,7 @@ class Mutants(object):
                 torsion_params[i].append(sys_torsion_params[j])
         return torsion_params
 
-    def build_fep_systems(self, system_idx, mutant_idx, windows, opt, charge_only):
+    def build_fep_systems(self, system_idx, mutant_idx, windows):
         #build interpolated params
         interpolated_params = []
         for wt_force, mut_force in zip(self.all_systems_params[system_idx][-1], self.all_systems_params[system_idx][mutant_idx]):

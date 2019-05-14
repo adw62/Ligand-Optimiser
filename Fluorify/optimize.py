@@ -125,7 +125,7 @@ class Optimize(object):
         if name != 'SSP_convergence_test' and name != 'FEP_convergence_test':
             for replica in range(self.num_fep):
                 logger.debug('Replica {}/{}'.format(replica+1, self.num_fep))
-                complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, opt_charges, steps)
+                complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, opt_charges, 20000)
                 ddg_fep = complex_dg - solvent_dg
                 ddg_error = (complex_error ** 2 + solvent_error ** 2) ** 0.5
                 logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
@@ -159,6 +159,7 @@ class Optimize(object):
                                                                          None, None, steps, 50, None)
         solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(sol_fep_params,
                                                                          None, None, steps, 50, None)
+
         return complex_dg, complex_error, solvent_dg, solvent_error
 
 
@@ -174,6 +175,7 @@ class Optimize(object):
             else:
                 bnds.append((y-periter_change, y+periter_change))
         return bnds
+
 
     def scipy_opt(self):
         og_charges = [x[0] for x in self.wt_nonbonded]

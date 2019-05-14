@@ -22,7 +22,7 @@ e = unit.elementary_charges
 
 class Fluorify(object):
     def __init__(self, output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name, job_type,
-                 auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu,
+                 auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, vdw_only, gaff_ver, opt, num_gpu,
                  num_fep, equi, central_diff, opt_name, opt_steps, rmsd):
 
         self.output_folder = output_folder
@@ -84,7 +84,7 @@ class Fluorify(object):
         #COMPLEX
         self.complex_sys = []
         self.complex_sys.append(FSim(ligand_name=ligand_name, sim_name=complex_name, input_folder=input_folder,
-                                     charge_only=charge_only, num_gpu=num_gpu, offset=self.complex_offset, opt=opt))
+                                     charge_only=charge_only, vdw_only=vdw_only, num_gpu=num_gpu, offset=self.complex_offset, opt=opt))
         self.complex_sys.append([complex_sim_dir + complex_name + '.dcd'])
         self.complex_sys.append(complex_sim_dir + complex_name + '.pdb')
         if run_dynamics:
@@ -98,7 +98,7 @@ class Fluorify(object):
         #SOLVENT
         self.solvent_sys = []
         self.solvent_sys.append(FSim(ligand_name=ligand_name, sim_name=solvent_name, input_folder=input_folder,
-                                     charge_only=charge_only, num_gpu=num_gpu, offset=self.solvent_offset, opt=opt))
+                                     charge_only=charge_only, vdw_only=vdw_only, num_gpu=num_gpu, offset=self.solvent_offset, opt=opt))
         self.solvent_sys.append([solvent_sim_dir + solvent_name + '.dcd'])
         self.solvent_sys.append(solvent_sim_dir + solvent_name + '.pdb')
         if run_dynamics:
@@ -286,6 +286,11 @@ class Fluorify(object):
                 if c_atom_list is not None or h_atom_list is not None:
                     raise ValueError('carbon or hydrogen atom list provided but sulphur scanning job requested')
                 mutated_systems, mutations = add_sulphurs(self.mol, job_type, auto_select, o_atoms)
+            elif job_type == ['VDW']:
+                job_type = 'H'
+                if c_atoms is not None or o_atom_list is not None:
+                    raise ValueError('carbon or oxygen atom list provided but VDW scanning job requested')
+                mutated_systems, mutations = add_fluorines(self.mol, job_type, auto_select, h_atoms)
             else:
                 raise ValueError('No recognised job type provided')
 
