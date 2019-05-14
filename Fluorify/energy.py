@@ -328,7 +328,7 @@ class FSim(object):
                 if not self.charge_only:
                     raise ValueError('Optimisation can only do charge only')
                 force.setParticleParameters(atom, nonbonded_params, sigma, epsilon)
-            if self.charge_only:
+            elif self.charge_only:
                 force.setParticleParameters(atom, nonbonded_params[0], sigma, epsilon)
             elif self.vdw_only:
                 force.setParticleParameters(atom, charge, nonbonded_params[1], nonbonded_params[2])
