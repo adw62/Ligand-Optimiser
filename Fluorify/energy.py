@@ -324,6 +324,10 @@ class FSim(object):
                 raise (ValueError('Fluorify has failed to generate nonbonded parameters(0) correctly please raise '
                                   'this as and issue at https://github.com/adw62/Fluorify'))
             charge, sigma, epsilon = force.getParticleParameters(atom)
+            if self.opt:
+                if not self.charge_only:
+                    raise ValueError('Optimisation can only do charge only')
+                force.setParticleParameters(atom, nonbonded_params, sigma, epsilon)
             if self.charge_only:
                 force.setParticleParameters(atom, nonbonded_params[0], sigma, epsilon)
             elif self.vdw_only:
