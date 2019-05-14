@@ -358,7 +358,11 @@ class FSim(object):
             if frozenset((p1-self.offset, p2-self.offset)) != excep[i]['id']:
                 raise (ValueError('Fluorify has failed to generate nonbonded parameters(2) correctly please raise '
                                   'this as and issue at https://github.com/adw62/Fluorify'))
-            if self.charge_only:
+            if self.opt:
+                if not self.charge_only:
+                    raise ValueError('Optimisation can only do charge only')
+                force.setExceptionParameters(excep_idx, p1, p2, excep_params, sigma, eps)
+            elif self.charge_only:
                 force.setExceptionParameters(excep_idx, p1, p2, excep_params[0], sigma, eps)
             elif self.vdw_only:
                 force.setExceptionParameters(excep_idx, p1, p2, charge_prod, excep_params[1], excep_params[2])
