@@ -78,9 +78,13 @@ class Fluorify(object):
                                   net_charge=self.net_charge, gaff=self.gaff_ver)
 
         logger.debug('Loading complex and solvent systems...')
+        tests = ['SSP_convergence_test', 'FEP_convergence_test', 'FS_test']
         if opt == True:
-            if opt_name == 'SSP_convergence_test' or opt_name == 'FEP_convergence_test':
+            if opt_name in tests:
                 run_dynamics = False
+            else:
+                run_dynamics = True
+
         #COMPLEX
         self.complex_sys = []
         self.complex_sys.append(FSim(ligand_name=ligand_name, sim_name=complex_name, input_folder=input_folder,

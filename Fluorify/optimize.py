@@ -89,6 +89,25 @@ class Optimize(object):
             opt_charges = [float(line) for line in file]
             file.close()
 
+        elif name == 'FS_test':
+            self.num_fep = 0
+            sampling = [500]
+            og_charges = [x[0] for x in self.wt_nonbonded]
+            peturb_charges = copy.deepcopy(og_charges)
+            peturb_charges[0] = peturb_charges[0] + 1.5e-04
+            exceptions = Optimize.get_charge_product(self, og_charges)
+            com_mut_param, sol_mut_param = build_opt_params([og_charges], [exceptions], self)
+            for num_frames in sampling:
+                self.num_frames = num_frames
+                for replica in range(0, 3):
+                    self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex', self.num_frames,
+                                                                                    self.equi, com_mut_param[0])
+                    self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent', self.num_frames,
+                                                                                    self.equi, sol_mut_param[0])
+
+                    ddG = objective(og_charges, peturb_charges, self)
+                    logger.debug('ddG Fluorine Scanning for {} frames for replica {} = {}'.format(num_frames, replica, ddG))
+
         elif name == 'SSP_convergence_test':
             self.num_fep = 0
             sampling = [10, 20, 30, 40, 50, 60, 70, 80, 90]
@@ -122,7 +141,8 @@ class Optimize(object):
         else:
             raise ValueError('No other optimizers implemented')
 
-        if name != 'SSP_convergence_test' and name != 'FEP_convergence_test':
+        tests = ['FEP_convergence_test', 'SSP_convergence_test', 'FS_test']
+        if name not in tests:
             for replica in range(self.num_fep):
                 logger.debug('Replica {}/{}'.format(replica+1, self.num_fep))
                 complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, opt_charges, 20000)
