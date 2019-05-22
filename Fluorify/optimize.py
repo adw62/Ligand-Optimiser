@@ -105,7 +105,7 @@ class Optimize(object):
                     self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent', self.num_frames,
                                                                                     self.equi, sol_mut_param[0])
 
-                    ddG = objective(og_charges, peturb_charges, self)
+                    ddG = objective(og_charges, peturb_charges, self)*unit.kilocalories_per_mole
                     logger.debug('ddG Fluorine Scanning for {} frames for replica {} = {}'.format(num_frames, replica, ddG))
 
         elif name == 'SSP_convergence_test':
@@ -123,7 +123,7 @@ class Optimize(object):
                     self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent', self.num_frames,
                                                                                     self.equi, sol_mut_param[0])
 
-                    ddG = objective(og_charges, peturb_charges, self)
+                    ddG = objective(og_charges, peturb_charges, self)*unit.kilocalories_per_mole
                     logger.debug('ddG Fluorine Scanning for {} frames for replica {} = {}'.format(num_frames, replica, ddG))
 
         elif name == 'FEP_convergence_test':

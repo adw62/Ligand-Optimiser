@@ -79,11 +79,10 @@ class Fluorify(object):
 
         logger.debug('Loading complex and solvent systems...')
         tests = ['SSP_convergence_test', 'FEP_convergence_test', 'FS_test']
+        run_dynamics = True
         if opt == True:
             if opt_name in tests:
                 run_dynamics = False
-            else:
-                run_dynamics = True
 
         #COMPLEX
         self.complex_sys = []

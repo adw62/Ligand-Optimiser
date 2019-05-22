@@ -191,12 +191,14 @@ class FSim(object):
 
         h_exceptions = []
         f_exceptions = []
+        all_new_atoms = []
         for new_atom in bond_list:
             exceptions = []
             system.addParticle(0.00)
             x, y, z = tuple(snapshot.xyz[0, new_atom[0], :]*10)
             pos.extend([[x, y, z]])
             atom_added = nonbonded_force.addParticle(0.0, 1.0, 0.0)
+            all_new_atoms.append(atom_added)
             ligand_ghost_atoms.append(atom_added)
             vs = mm.TwoParticleAverageSite(new_atom[0], new_atom[1], 1+f_weight, -f_weight)
             system.setVirtualSite(atom_added, vs)
@@ -219,8 +221,16 @@ class FSim(object):
                 idx = nonbonded_force.addException(*exception)
                 f_exceptions.append([idx, exception[0], exception[1], 0.0, 0.1, 0.0])
                 ligand_ghost_exceptions.append(idx)
-
             nonbonded_force.addException(atom_added, new_atom[0], 0.0, 0.1, 0.0, False)
+
+        #add exclusions between all atoms in hybrid topo.
+        for atomi in all_new_atoms:
+            for atomj in all_new_atoms:
+                if atomj != atomi:
+                    try:
+                        nonbonded_force.addException(atomi, atomj, 0.0, 0.1, 0.0, False)
+                    except:
+                        pass
 
         virt_excep_shift = [[x[0], y[2]-x[1]] for x, y in zip(h_exceptions, f_exceptions)]
         h_virt_excep = [frozenset((x[0], x[1])) for x in h_exceptions]
