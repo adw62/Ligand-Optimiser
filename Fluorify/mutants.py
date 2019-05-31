@@ -33,6 +33,7 @@ class Mutants(object):
         exception_order = [complex_sys.exceptions_list, solvent_sys.exceptions_list]
         h_virt_excep = [complex_sys.h_virt_excep, solvent_sys.h_virt_excep]
         bond_order = [complex_sys.bond_list, solvent_sys.bond_list]
+        bond_ghost = [complex_sys.ghost_ligand_info[2], solvent_sys.ghost_ligand_info[2]]
         torsion_order = [complex_sys.torsion_list, solvent_sys.torsion_list]
 
         self.offset = [complex_sys.offset, solvent_sys.offset]
@@ -42,13 +43,13 @@ class Mutants(object):
         nonbonded_params, nonbonded_ghosts = Mutants.build_nonbonded(self, params, mutations, virt_atoms, atom_order)
         exception_params, exception_ghosts = Mutants.build_exceptions(self, params, mutations,
                                                                       h_virt_excep, exception_order)
-        bonded_params = Mutants.build_bonds(self, params, mutations, bond_order)
+        bonded_params, bonded_ghosts = Mutants.build_bonds(self, params, mutations, bond_order, bond_ghost)
         torsion_params = Mutants.build_torsions(self, params, mutations, torsion_order)
 
-        self.complex_params = [[x, y, z, l, k, p] for x, y, z, l, k, p
-                          in zip(nonbonded_params[0], nonbonded_ghosts[0], exception_params[0], exception_ghosts[0], bonded_params[0], torsion_params[0])]
-        self.solvent_params = [[x, y, z, l, k, p] for x, y, z, l, k, p
-                          in zip(nonbonded_params[1], nonbonded_ghosts[1], exception_params[1], exception_ghosts[1], bonded_params[1], torsion_params[1])]
+        self.complex_params = [[x, y, z, l, k, p, t] for x, y, z, l, k, p, t
+                          in zip(nonbonded_params[0], nonbonded_ghosts[0], exception_params[0], exception_ghosts[0], bonded_params[0], torsion_params[0], bonded_ghosts[0])]
+        self.solvent_params = [[x, y, z, l, k, p, t] for x, y, z, l, k, p, t
+                          in zip(nonbonded_params[1], nonbonded_ghosts[1], exception_params[1], exception_ghosts[1], bonded_params[1], torsion_params[1], bonded_ghosts[1])]
 
         self.all_systems_params = [self.complex_params, self.solvent_params]
 
@@ -173,7 +174,7 @@ class Mutants(object):
         """
         return exception_params, exception_ghosts
 
-    def build_bonds(self, params, mutations, bond_order):
+    def build_bonds(self, params, mutations, bond_order, bond_ghost):
         #reduce to bonds only
         params = copy.deepcopy([x[2] for x in params])
         #find bonds of subtracted atoms
@@ -199,16 +200,45 @@ class Mutants(object):
                 sys_bonded_params[j] = [map[frozenset(int(x-sys_offset) for x in atom)] for atom in sys_bond_order]
                 bonded_params[i].append(sys_bonded_params[j])
 
-        """
-        # Build ghost bonds
-        bond_ghosts = copy.deepcopy(bonded_params)
-        for i, (sys_bond_params, sys_virt_order, sys_offset) in enumerate(zip(bond_ghosts, h_virt_excep, self.offset)):
-            for j, mutant_parmas in enumerate(sys_bond_params):
-                map = {x['id']: x for x in mutant_parmas}
-                bond_ghosts[i][j] = [map[frozenset(int(x - sys_offset) for x in atom)] for atom in sys_virt_order]
-        """
+        zero = [0.15*nm, 0.0*kj_mol/(nm**2)]
+        # zero flourines in original topology aka exception params
+        for i, sys_bonded_params in enumerate(bonded_params):
+            for j, (mutant_parmas, mutant) in enumerate(zip(sys_bonded_params, mutations)):
+                atom_idxs = mutant['replace']
+                if None not in atom_idxs:
+                    for atom in atom_idxs:
+                        atom = int(atom-1)
+                        for k, bond1 in enumerate(mutant_parmas):
+                            if atom in bond1['id']:
+                                sul = bonded_params[i][j][k]['data']
+                                bonded_params[i][j][k]['data'] = zero
 
-        return bonded_params
+        #build bonded_ghost
+        bonded_ghost = []
+        for sys, sys_v_offset in zip(bond_ghost, self.virtual_offset):
+            system = []
+            for _ in mutations:
+                mutant = []
+                for bond in sys:
+                    mutant.append({'id': frozenset((bond[0], bond[1])), 'data': zero})
+                system.append(mutant)
+            bonded_ghost.append(system)
+
+        # zero everything but Sulphurs for a specific mutant in dual topology
+        for i, (sys_bonded_ghosts, virt_shift) in enumerate(zip(bonded_ghost, self.virtual_offset)):
+            for j, (mutant_parmas, mutant) in enumerate(zip(sys_bonded_ghosts, mutations)):
+                atom_idxs = mutant['replace']
+                if None not in atom_idxs:
+                    for atom in atom_idxs:
+                        atom = int(atom-1)+virt_shift
+                        for k, bond1 in enumerate(mutant_parmas):
+                            if atom in bond1['id']:
+                                bonded_ghost[i][j][k]['data'] = sul
+                else:
+                    for k, bond1 in enumerate(mutant_parmas):
+                        bonded_ghost[i][j][k]['data'] = zero
+
+        return bonded_params, bonded_ghost
 
     def build_torsions(self, params, mutations, torsion_order):
         #reduce to bonds only
@@ -251,10 +281,9 @@ class Mutants(object):
                 for k, (param1, param2) in enumerate(zip(force1, mutant)):
                     interpolated_params[i][j][k] = copy.deepcopy(param1)
                     interpolated_params[i][j][k]['data'] = param2
-
-        mutant_systems = [[x, y, z, l, k, p] for x, y, z, l, k, p in zip(interpolated_params[0], interpolated_params[1],
+        mutant_systems = [[x, y, z, l, k, p, t] for x, y, z, l, k, p, t in zip(interpolated_params[0], interpolated_params[1],
                                                                          interpolated_params[2], interpolated_params[3],
-                                                                         interpolated_params[4], interpolated_params[5])]
+                                                                         interpolated_params[4], interpolated_params[5], interpolated_params[6])]
         return mutant_systems
 
 
