@@ -17,7 +17,7 @@ radian = unit.radian
 
 
 class Mutants(object):
-    def __init__(self, params, mutations, complex_sys, solvent_sys):
+    def __init__(self, params, mutations, complex_sys, solvent_sys, ghost_flag=False):
         """
         A class for applying mutant parameters to openmm system
         :param params: List of lists for mutant parameters
@@ -33,9 +33,9 @@ class Mutants(object):
         exception_order = [complex_sys.exceptions_list, solvent_sys.exceptions_list]
         h_virt_excep = [complex_sys.h_virt_excep, solvent_sys.h_virt_excep]
         bond_order = [complex_sys.bond_list, solvent_sys.bond_list]
-        bond_ghost = [complex_sys.ghost_ligand_info[2], solvent_sys.ghost_ligand_info[2]]
         torsion_order = [complex_sys.torsion_list, solvent_sys.torsion_list]
 
+        self.ghost_flag = ghost_flag
         self.offset = [complex_sys.offset, solvent_sys.offset]
         self.virtual_offset = [complex_sys.virt_atom_shift, solvent_sys.virt_atom_shift]
         self.num_mutants = len([x[0] for x in params])
@@ -43,13 +43,13 @@ class Mutants(object):
         nonbonded_params, nonbonded_ghosts = Mutants.build_nonbonded(self, params, mutations, virt_atoms, atom_order)
         exception_params, exception_ghosts = Mutants.build_exceptions(self, params, mutations,
                                                                       h_virt_excep, exception_order)
-        bonded_params, bonded_ghosts = Mutants.build_bonds(self, params, mutations, bond_order, bond_ghost)
+        bonded_params = Mutants.build_bonds(self, params, mutations, bond_order)
         torsion_params = Mutants.build_torsions(self, params, mutations, torsion_order)
 
-        self.complex_params = [[x, y, z, l, k, p, t] for x, y, z, l, k, p, t
-                          in zip(nonbonded_params[0], nonbonded_ghosts[0], exception_params[0], exception_ghosts[0], bonded_params[0], torsion_params[0], bonded_ghosts[0])]
-        self.solvent_params = [[x, y, z, l, k, p, t] for x, y, z, l, k, p, t
-                          in zip(nonbonded_params[1], nonbonded_ghosts[1], exception_params[1], exception_ghosts[1], bonded_params[1], torsion_params[1], bonded_ghosts[1])]
+        self.complex_params = [[x, y, z, l, k, p] for x, y, z, l, k, p
+                          in zip(nonbonded_params[0], nonbonded_ghosts[0], exception_params[0], exception_ghosts[0], bonded_params[0], torsion_params[0])]
+        self.solvent_params = [[x, y, z, l, k, p] for x, y, z, l, k, p
+                          in zip(nonbonded_params[1], nonbonded_ghosts[1], exception_params[1], exception_ghosts[1], bonded_params[1], torsion_params[1])]
 
         self.all_systems_params = [self.complex_params, self.solvent_params]
 
@@ -72,25 +72,27 @@ class Mutants(object):
             tmp = [{'id': int(sys_virt_offset+i), 'data': [0.0*e, 0.26*unit.nanometer, 0.0*unit.kilojoules_per_mole]} for i in range(len(virt_atoms[0]))]
             nonbonded_ghosts[i] = [copy.deepcopy(tmp) for i in range(len(nonbonded_params[0]))]
 
-        # transfer params from original topology to ghost topology
-        for i, (sys, sys_virt_atoms) in enumerate(zip(nonbonded_params, virt_atoms)):
-            for j, (mutant_params, mutant) in enumerate(zip(sys, mutations)):
-                atom_idxs = mutant['replace']
-                if None not in atom_idxs:
-                    for atom in atom_idxs:
-                        atom = int(atom-1)
-                        transfer_params = copy.deepcopy(mutant_params[atom])
-                        transfer_params = transfer_params['data']
-                        mutant_params[atom] = {'id': atom, 'data': [0.0*e, 0.26*nm, 0.0*kj_mol]}
-                        transfer_index = sys_virt_atoms.index(atom)
-                        virt_id = nonbonded_ghosts[i][j][transfer_index]['id']
-                        nonbonded_ghosts[i][j][transfer_index] = {'id': virt_id, 'data': transfer_params}
+        if self.ghost_flag:
+            # transfer params from original topology to ghost topology
+            for i, (sys, sys_virt_atoms) in enumerate(zip(nonbonded_params, virt_atoms)):
+                for j, (mutant_params, mutant) in enumerate(zip(sys, mutations)):
+                    atom_idxs = mutant['replace']
+                    if None not in atom_idxs:
+                        for atom in atom_idxs:
+                            atom = int(atom-1)
+                            transfer_params = copy.deepcopy(mutant_params[atom])
+                            transfer_params = transfer_params['data']
+                            mutant_params[atom] = {'id': atom, 'data': [0.0*e, 0.26*nm, 0.0*kj_mol]}
+                            transfer_index = sys_virt_atoms.index(atom)
+                            virt_id = nonbonded_ghosts[i][j][transfer_index]['id']
+                            nonbonded_ghosts[i][j][transfer_index] = {'id': virt_id, 'data': transfer_params}
+        else:
+            pass
 
         return nonbonded_params, nonbonded_ghosts
 
     def build_exceptions(self, params, mutations, h_virt_excep, exception_order):
         """
-
         :param params:
         :param mutations:
         :param virt_exceptions: ghost from complex and solsvent systems
@@ -130,6 +132,7 @@ class Mutants(object):
                 raise ValueError(x['id'], frozenset(int(atom-0) for atom in y))
         """
 
+
         #Build ghost exceptions
         exception_ghosts = copy.deepcopy(exception_params)
         for i, (sys_exception_params, sys_virt_order, sys_offset) in enumerate(zip(exception_ghosts, h_virt_excep, self.offset)):
@@ -137,44 +140,51 @@ class Mutants(object):
                 map = {x['id']: x for x in mutant_parmas}
                 exception_ghosts[i][j] = [map[frozenset(int(x-sys_offset) for x in atom)] for atom in sys_virt_order]
 
-        zero = [0.0*ee, 0.1*nm, 0.0*kj_mol]
-        # zero flourines in original topology aka exception params
-        for i, sys_exception_params in enumerate(exception_params):
-            for j, (mutant_parmas, mutant) in enumerate(zip(sys_exception_params, mutations)):
-                atom_idxs = mutant['replace']
-                if None not in atom_idxs:
-                    for atom in atom_idxs:
-                        atom = int(atom-1)
-                        for k, excep1 in enumerate(mutant_parmas):
-                            if atom in excep1['id']:
-                                exception_params[i][j][k]['data'] = zero
+        zero = [0.0 * ee, 0.1 * nm, 0.0 * kj_mol]
+        if self.ghost_flag:
+            # zero flourines in original topology aka exception params
+            for i, sys_exception_params in enumerate(exception_params):
+                for j, (mutant_parmas, mutant) in enumerate(zip(sys_exception_params, mutations)):
+                    atom_idxs = mutant['replace']
+                    if None not in atom_idxs:
+                        for atom in atom_idxs:
+                            atom = int(atom-1)
+                            for k, excep1 in enumerate(mutant_parmas):
+                                if atom in excep1['id']:
+                                    exception_params[i][j][k]['data'] = zero
 
-        # zero everything but fluorines in dual topology aka exception_ghosts
-        for i, sys_exception_ghosts in enumerate(exception_ghosts):
-            for j, (mutant_parmas, mutant) in enumerate(zip(sys_exception_ghosts, mutations)):
-                atom_idxs = mutant['replace']
-                if None not in atom_idxs:
-                    for atom in atom_idxs:
-                        atom = int(atom-1)
+            # zero everything but fluorines in dual topology aka exception_ghosts
+            for i, sys_exception_ghosts in enumerate(exception_ghosts):
+                for j, (mutant_parmas, mutant) in enumerate(zip(sys_exception_ghosts, mutations)):
+                    atom_idxs = mutant['replace']
+                    if None not in atom_idxs:
+                        for atom in atom_idxs:
+                            atom = int(atom-1)
+                            for k, excep1 in enumerate(mutant_parmas):
+                                #Hinders multi permu (killing cross terms)
+                                if atom not in excep1['id']:
+                                    exception_ghosts[i][j][k]['data'] = zero
+                    else:
                         for k, excep1 in enumerate(mutant_parmas):
-                            #Hinders multi permu (killing cross terms)
-                            if atom not in excep1['id']:
-                                exception_ghosts[i][j][k]['data'] = zero
-                else:
-                    for k, excep1 in enumerate(mutant_parmas):
+                            exception_ghosts[i][j][k]['data'] = zero
+            """
+            for x in exception_params[0][0]:
+                if x['data'][0] == 0.0*ee:
+                    print(x)
+
+            for x in exception_ghosts[0][0]:
+                if x['data'][0] != 0.0*ee:
+                    print(x)
+            """
+        else:
+            for i, (sys_exception_params, sys_virt_order, sys_offset) in enumerate(zip(exception_ghosts, h_virt_excep, self.offset)):
+                for j, mutant_parmas in enumerate(sys_exception_params):
+                    for k, excep in enumerate(mutant_parmas):
                         exception_ghosts[i][j][k]['data'] = zero
-        """
-        for x in exception_params[0][0]:
-            if x['data'][0] == 0.0*ee:
-                print(x)
 
-        for x in exception_ghosts[0][0]:
-            if x['data'][0] != 0.0*ee:
-                print(x)
-        """
         return exception_params, exception_ghosts
 
-    def build_bonds(self, params, mutations, bond_order, bond_ghost):
+    def build_bonds(self, params, mutations, bond_order):
         #reduce to bonds only
         params = copy.deepcopy([x[2] for x in params])
         #find bonds of subtracted atoms
@@ -200,45 +210,7 @@ class Mutants(object):
                 sys_bonded_params[j] = [map[frozenset(int(x-sys_offset) for x in atom)] for atom in sys_bond_order]
                 bonded_params[i].append(sys_bonded_params[j])
 
-        zero = [0.15*nm, 0.0*kj_mol/(nm**2)]
-        # zero flourines in original topology aka exception params
-        for i, sys_bonded_params in enumerate(bonded_params):
-            for j, (mutant_parmas, mutant) in enumerate(zip(sys_bonded_params, mutations)):
-                atom_idxs = mutant['replace']
-                if None not in atom_idxs:
-                    for atom in atom_idxs:
-                        atom = int(atom-1)
-                        for k, bond1 in enumerate(mutant_parmas):
-                            if atom in bond1['id']:
-                                sul = bonded_params[i][j][k]['data']
-                                bonded_params[i][j][k]['data'] = zero
-
-        #build bonded_ghost
-        bonded_ghost = []
-        for sys, sys_v_offset in zip(bond_ghost, self.virtual_offset):
-            system = []
-            for _ in mutations:
-                mutant = []
-                for bond in sys:
-                    mutant.append({'id': frozenset((bond[0], bond[1])), 'data': zero})
-                system.append(mutant)
-            bonded_ghost.append(system)
-
-        # zero everything but Sulphurs for a specific mutant in dual topology
-        for i, (sys_bonded_ghosts, virt_shift) in enumerate(zip(bonded_ghost, self.virtual_offset)):
-            for j, (mutant_parmas, mutant) in enumerate(zip(sys_bonded_ghosts, mutations)):
-                atom_idxs = mutant['replace']
-                if None not in atom_idxs:
-                    for atom in atom_idxs:
-                        atom = int(atom-1)+virt_shift
-                        for k, bond1 in enumerate(mutant_parmas):
-                            if atom in bond1['id']:
-                                bonded_ghost[i][j][k]['data'] = sul
-                else:
-                    for k, bond1 in enumerate(mutant_parmas):
-                        bonded_ghost[i][j][k]['data'] = zero
-
-        return bonded_params, bonded_ghost
+        return bonded_params
 
     def build_torsions(self, params, mutations, torsion_order):
         #reduce to bonds only
@@ -281,9 +253,10 @@ class Mutants(object):
                 for k, (param1, param2) in enumerate(zip(force1, mutant)):
                     interpolated_params[i][j][k] = copy.deepcopy(param1)
                     interpolated_params[i][j][k]['data'] = param2
-        mutant_systems = [[x, y, z, l, k, p, t] for x, y, z, l, k, p, t in zip(interpolated_params[0], interpolated_params[1],
+
+        mutant_systems = [[x, y, z, l, k, p] for x, y, z, l, k, p in zip(interpolated_params[0], interpolated_params[1],
                                                                          interpolated_params[2], interpolated_params[3],
-                                                                         interpolated_params[4], interpolated_params[5], interpolated_params[6])]
+                                                                         interpolated_params[4], interpolated_params[5])]
         return mutant_systems
 
 

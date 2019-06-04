@@ -85,7 +85,7 @@ class FSim(object):
         self.wt_system = system
 
     def add_all_virtual(self, system, nonbonded_force, bonded_force, snapshot, ligand_name):
-        return FSim.add_sulphur(self, system, nonbonded_force, bonded_force, snapshot, ligand_name)
+        return FSim.add_fluorine(self, system, nonbonded_force, snapshot, ligand_name)
 
     def add_sulphur(self, system, nonbonded_force, bonded_force, snapshot, ligand_name):
         pos = list(snapshot.xyz[0]*10)
@@ -124,8 +124,7 @@ class FSim(object):
             x, y, z = tuple(snapshot.xyz[0, new_atom[0], :]*10)
             pos.extend([[x, y, z]])
             atom_added = nonbonded_force.addParticle(0.0, 1.0, 0.0)
-            bond_added = bonded_force.addBond(atom_added, new_atom[1], 0.15*nm, 0.0*kj_mol/(nm**2))
-            ligand_ghost_bonds.append([atom_added, new_atom[1], bond_added])
+            bonded_force.addBond(atom_added, new_atom[1], 0.15*nm, 0.0*kj_mol/(nm**2))
             ligand_ghost_atoms.append(atom_added)
             vs = mm.TwoParticleAverageSite(new_atom[0], new_atom[1], 1+s_weight, -s_weight)
             system.setVirtualSite(atom_added, vs)
@@ -155,6 +154,7 @@ class FSim(object):
 
         virt_excep_shift = [[x[0], y[2]-x[1]] for x, y in zip(o_exceptions, s_exceptions)]
         o_virt_excep = [frozenset((x[0], x[1])) for x in o_exceptions]
+
         return pos, top, oxygen_order, o_virt_excep, virt_excep_shift, s_exceptions, [ligand_ghost_atoms, ligand_ghost_exceptions, ligand_ghost_bonds]
 
 
@@ -306,20 +306,13 @@ class FSim(object):
         pool.terminate()
         return dcd_names
 
-    def apply_bonded_parameters(self, force, mutant_parameters, ghost_params):
+    def apply_bonded_parameters(self, force, mutant_parameters):
         for bond_idx, particle_idxs, bond in zip(self.ligand_info[2], self.bond_list, mutant_parameters):
             if frozenset((particle_idxs[0]-self.offset, particle_idxs[1]-self.offset)) != bond['id']:
-                raise (ValueError('Fluorify has failed to generate bonds (1) correctly please raise '
+                raise (ValueError('Fluorify has failed to generate bonds correctly please raise '
                                   'this as and issue at https://github.com/adw62/Fluorify'))
             data = bond['data']
             force.setBondParameters(bond_idx, particle_idxs[0], particle_idxs[1], data[0], data[1])
-        if not self.opt:
-            for bond, particle_idxs in zip(ghost_params, self.ghost_ligand_info[2]):
-                if frozenset((particle_idxs[0], particle_idxs[1])) != bond['id']:
-                    raise (ValueError('Fluorify has failed to generate bonds (2) correctly please raise '
-                                      'this as and issue at https://github.com/adw62/Fluorify'))
-                data = bond['data']
-                force.setBondParameters(particle_idxs[2], particle_idxs[0], particle_idxs[1], data[0], data[1])
 
     def apply_torsion_parameters(self, force, mutant_parameters):
         for torsion_idx, particle_idxs, torsion in zip(self.ligand_info[3], self.torsion_list, mutant_parameters):
@@ -332,6 +325,7 @@ class FSim(object):
                                        data[0], data[1], data[2])
 
     def apply_nonbonded_parameters(self, force, params, ghost_params, excep, ghost_excep):
+
         #nonbonded
         for i, index in enumerate(self.ligand_info[0]):
             atom = int(index)
@@ -474,7 +468,7 @@ def mutant_energy(idxs, sim, dcd, top, num_frames, all_mutants):
                                        all_mutants[i][2], all_mutants[i][3])
         nonbonded_force.updateParametersInContext(context)
         if not sim.opt:
-            sim.apply_bonded_parameters(harmonic_force, all_mutants[i][4], all_mutants[i][6])
+            sim.apply_bonded_parameters(harmonic_force, all_mutants[i][4])
             harmonic_force.updateParametersInContext(context)
             sim.apply_torsion_parameters(torsion_force, all_mutants[i][5])
             torsion_force.updateParametersInContext(context)
@@ -517,7 +511,7 @@ def run_fep(idxs, sim, system, pdb, n_steps, n_iterations, all_mutants):
                                            all_mutants[m_id][2], all_mutants[m_id][3])
             nonbonded_force.updateParametersInContext(context)
             if not sim.opt:
-                sim.apply_bonded_parameters(harmonic_force, all_mutants[m_id][4], all_mutants[m_id][6])
+                sim.apply_bonded_parameters(harmonic_force, all_mutants[m_id][4])
                 harmonic_force.updateParametersInContext(context)
                 sim.apply_torsion_parameters(torsion_force, all_mutants[m_id][5])
                 torsion_force.updateParametersInContext(context)
@@ -529,7 +523,7 @@ def run_fep(idxs, sim, system, pdb, n_steps, n_iterations, all_mutants):
                                                global_mutant[2], global_mutant[3])
                 nonbonded_force.updateParametersInContext(context)
                 if not sim.opt:
-                    sim.apply_bonded_parameters(harmonic_force, global_mutant[4], global_mutant[6])
+                    sim.apply_bonded_parameters(harmonic_force, global_mutant[4])
                     harmonic_force.updateParametersInContext(context)
                     sim.apply_torsion_parameters(torsion_force, global_mutant[5])
                     torsion_force.updateParametersInContext(context)
