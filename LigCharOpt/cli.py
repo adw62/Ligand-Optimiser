@@ -4,7 +4,7 @@ import os
 import shutil
 import logging
 
-from .fluorify import Fluorify
+from .ligcharopt import LigCharOpt
 from docopt import docopt
 
 logger = logging.getLogger(__name__)
@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 # =============================================================================================
 
 usage = """
-FLUORIFY
+LIGCHAROPT
 Usage:
-  Fluorify [--output_folder=STRING] [--mol_name=STRING] [--ligand_name=STRING] [--complex_name=STRING] [--solvent_name=STRING]
+  LigCharOpt [--output_folder=STRING] [--mol_name=STRING] [--ligand_name=STRING] [--complex_name=STRING] [--solvent_name=STRING]
             [--yaml_path=STRING] [--o_atom_list=LIST] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT] [--net_charge=INT]
             [--gaff_ver=INT] [--equi=INT] [--num_fep=INT] [--auto_select=STRING] [--charge_only=BOOL] [--vdw_only=BOOL] [--optimize=BOOL]
             [--num_gpu=INT] [--opt_name=STRING] [--rmsd=FLOAT] [--opt_steps=INT] [--central_diff=BOOL] [--job_type=STRING]...
@@ -87,13 +87,13 @@ def main(argv=None):
     if args['--num_frames']:
         num_frames = int(args['--num_frames'])
     else:
-        num_frames = 10000
+        num_frames = 500
         logger.debug(msg.format('number of frames', num_frames))
 
     if args['--equi']:
         equi = int(args['--equi'])
     else:
-        equi = 250000
+        equi = 250
         logger.debug(msg.format('Number of equlibriation steps', equi))
 
     if args['--net_charge']:
@@ -159,7 +159,7 @@ def main(argv=None):
         if args['--rmsd']:
             rmsd = float(args['--rmsd'])
         else:
-            rmsd = 0.02
+            rmsd = 0.03
             logger.debug(msg.format('optimization rmsd', rmsd))
     else:
         logger.debug('Scanning ligand...')

@@ -152,49 +152,6 @@ class LigCharOpt(object):
         mutant_parameters.append(wt_parameters)
         mutations.append({'add': [], 'subtract': [], 'replace': [None], 'replace_insitu': [None]})
 
-        #TODO units and torsion
-        log_param = False
-        if log_param == True:
-            for i, (mutant, mutation) in enumerate(zip(mutant_parameters, mutations)):
-                if mutant == mutant_parameters[-1]:
-                    mutant_atom_name = None
-                    logger.debug('\tWILDTYPE')
-                else:
-                    mutant_atom_name = self.mol2_ligand_atoms[int(mutation['replace'][0]) - 1]
-                    logger.debug('\tMUTANT_{}: {}'.format(i, mutant_atom_name))
-                logger.debug('\tnonbonded------------------------------------------')
-                for atom, atom_name in zip(mutant[0], self.mol2_ligand_atoms):
-                    if atom_name == mutant_atom_name:
-                        atom_name = 'F1'
-                    logger.debug('\t{0}\t{1}\t{2}\t{3}'.format(atom_name, atom['data'][0], atom['data'][1], atom['data'][2]))
-        """
-                logger.debug('\tbonds----------------------------------------------')
-                for bond in mutant[2]:
-                    indexs = list(bond['id'])
-                    atom0 = self.mol2_ligand_atoms[indexs[0]]
-                    atom1 = self.mol2_ligand_atoms[indexs[1]]
-                    if atom0 == mutant_atom_name:
-                        atom0 = 'F1'
-                    if atom1 == mutant_atom_name:
-                        atom1 = 'F1'
-                    logger.debug('\t{0}\t{1}\t{2}\t{3}'.format(atom0, atom1, bond['data'][0], bond['data'][1]))
-                logger.debug('\ttorsions-------------------------------------------')
-                for torsion in mutant[3]:
-                    indexs = list(torsion['id'])
-                    atom0 = self.mol2_ligand_atoms[indexs[0]]
-                    atom1 = self.mol2_ligand_atoms[indexs[1]]
-                    atom2 = self.mol2_ligand_atoms[indexs[2]]
-                    atom3 = self.mol2_ligand_atoms[indexs[3]]
-                    if atom0 == mutant_atom_name:
-                        atom0 = 'F1'
-                    if atom1 == mutant_atom_name:
-                        atom1 = 'F1'
-                    if atom2 == mutant_atom_name:
-                        atom2 = 'F1'
-                    if atom3 == mutant_atom_name:
-                        atom3 = 'F1'
-                    logger.debug('\t{0}\t{1}\t{2}\t{3}\t{4}'.format(atom0, atom1, atom2, atom3, torsion['data'][0], torsion['data'][1], torsion['data'][2]))
-        """
         if self.job_type == 'F':
             ghosts = True
         elif self.job_type == 'S':
@@ -202,58 +159,13 @@ class LigCharOpt(object):
         mutant_params = Mutants(mutant_parameters, mutations, self.complex_sys[0], self.solvent_sys[0], ghost_flag=ghosts)
         del mutant_parameters
 
-        t1 = time.time()
-        logger.debug('Took {} seconds'.format(t1 - t0))
-
-        """
-        Apply ligand charges to OpenMM complex and solvent systems.
-        Calculate potential energy of simulation with mutant charges.
-        Calculate free energy change from wild type to mutant.
-        """
-        logger.debug('Calculating free energies...')
         t0 = time.time()
-
-
-        logger.debug('Computing complex potential energies...')
-        complex_free_energy = FSim.treat_phase(self.complex_sys[0], mutant_params.complex_params, self.complex_sys[1],
-                                               self.complex_sys[2], self.num_frames)
-        logger.debug('Computing solvent potential energies...')
-        solvent_free_energy = FSim.treat_phase(self.solvent_sys[0], mutant_params.solvent_params, self.solvent_sys[1],
-                                               self.solvent_sys[2], self.num_frames)
-
-        #RESULT
-        best_mutants = []
-        for i, energy in enumerate(complex_free_energy):
-            atom_names = []
-            replace = mutations[i]['replace']
-            replace.extend(mutations[i]['replace_insitu'])
-            for atom in replace:
-                atom_index = int(atom)-1
-                atom_names.append(self.mol2_ligand_atoms[atom_index])
-            binding_free_energy = energy - solvent_free_energy[i]
-            best_mutants.append([binding_free_energy, atom_names, i])
-            logger.debug('dGs for molecule{}.mol2 with'
-                  ' {} substituted for {} complex dG = {}, solvent dG = {}'.format(str(i), atom_names, self.job_type,
-                                                                                   energy, solvent_free_energy[i]))
-            logger.debug('ddG for molecule{}.mol2 with'
-                  ' {} substituted for {} = {}'.format(str(i), atom_names, self.job_type, binding_free_energy))
-        best_mutants = sorted(best_mutants)
-        t1 = time.time()
-        logger.debug('Took {} seconds'.format(t1 - t0))
-
-        x_best = min(self.num_fep, len(best_mutants))
-
-        logger.debug('Calculating FEP for {} best mutants...'.format(x_best))
-        t0 = time.time()
-        for x in range(x_best):
-            complex_dg, complex_error = self.complex_sys[0].run_parallel_fep(mutant_params, 0, best_mutants[x][2],
-                                                                             20000, 50, 12)
-            solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(mutant_params, 1, best_mutants[x][2],
-                                                                             20000, 50, 12)
+        for i, mut in enumerate(mutant_params.complex_params):
+            complex_dg, complex_error = self.complex_sys[0].run_parallel_fep(mutant_params, 0, i, 20000, 50, 12)
+            solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(mutant_params, 1, i, 20000, 50, 12)
             ddg_fep = complex_dg - solvent_dg
             ddg_error = (complex_error**2+solvent_error**2)**0.5
             logger.debug('Mutant {}:'.format(best_mutants[x][1]))
-            logger.debug('ddG Fluorine Scanning = {}'.format(best_mutants[x][0]))
             logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
         t1 = time.time()
         logger.debug('Took {} seconds'.format(t1 - t0))
