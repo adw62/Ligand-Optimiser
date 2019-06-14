@@ -17,7 +17,7 @@ radian = unit.radian
 
 
 class Mutants(object):
-    def __init__(self, params, mutations, complex_sys, solvent_sys, ghost_flag=False):
+    def __init__(self, params, mutations, complex_sys, solvent_sys, ghost_flag=True):
         """
         A class for applying mutant parameters to openmm system
         :param params: List of lists for mutant parameters

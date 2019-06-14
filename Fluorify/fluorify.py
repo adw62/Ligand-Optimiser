@@ -195,7 +195,11 @@ class Fluorify(object):
                         atom3 = 'F1'
                     logger.debug('\t{0}\t{1}\t{2}\t{3}\t{4}'.format(atom0, atom1, atom2, atom3, torsion['data'][0], torsion['data'][1], torsion['data'][2]))
         """
-        mutant_params = Mutants(mutant_parameters, mutations, self.complex_sys[0], self.solvent_sys[0])
+        if self.job_type == 'F':
+            ghosts = True
+        elif self.job_type == 'S':
+            ghosts = False
+        mutant_params = Mutants(mutant_parameters, mutations, self.complex_sys[0], self.solvent_sys[0], ghost_flag=ghosts)
         del mutant_parameters
 
         t1 = time.time()
