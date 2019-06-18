@@ -23,7 +23,7 @@ e = unit.elementary_charges
 class LigCharOpt(object):
     def __init__(self, output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name, job_type,
                  auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, vdw_only, gaff_ver, opt, num_gpu,
-                 num_fep, equi, central_diff, opt_name, opt_steps, rmsd):
+                 num_fep, equi, central_diff, opt_name, opt_steps, rmsd, exclude_dualtopo):
 
         self.output_folder = output_folder
         self.net_charge = net_charge
@@ -87,7 +87,8 @@ class LigCharOpt(object):
         #COMPLEX
         self.complex_sys = []
         self.complex_sys.append(FSim(ligand_name=ligand_name, sim_name=complex_name, input_folder=input_folder,
-                                     charge_only=charge_only, vdw_only=vdw_only, num_gpu=num_gpu, offset=self.complex_offset, opt=opt))
+                                     charge_only=charge_only, vdw_only=vdw_only, num_gpu=num_gpu, offset=self.complex_offset,
+                                     opt=opt, exclude_dualtopo=exclude_dualtopo))
         self.complex_sys.append([complex_sim_dir + complex_name + '.dcd'])
         self.complex_sys.append(complex_sim_dir + complex_name + '.pdb')
         if run_dynamics:
@@ -101,7 +102,8 @@ class LigCharOpt(object):
         #SOLVENT
         self.solvent_sys = []
         self.solvent_sys.append(FSim(ligand_name=ligand_name, sim_name=solvent_name, input_folder=input_folder,
-                                     charge_only=charge_only, vdw_only=vdw_only, num_gpu=num_gpu, offset=self.solvent_offset, opt=opt))
+                                     charge_only=charge_only, vdw_only=vdw_only, num_gpu=num_gpu, offset=self.solvent_offset,
+                                     opt=opt, exclude_dualtopo=exclude_dualtopo))
         self.solvent_sys.append([solvent_sim_dir + solvent_name + '.dcd'])
         self.solvent_sys.append(solvent_sim_dir + solvent_name + '.pdb')
         if run_dynamics:
@@ -211,7 +213,7 @@ class LigCharOpt(object):
 
         else:
             if h_atoms is None or c_atoms is None:
-                raise ValueError('Mixed substitution requested must provided carbon and hydrogen atom lists')
+                raise ValueError('Mixed substitution requested must provide carbon and hydrogen atom lists')
             job_type[0] = 'N.ar'
             mutated_systems = []
             mutations = []
@@ -224,6 +226,7 @@ class LigCharOpt(object):
                     p_mutations[j]['add'].extend(f_mutations[i]['add'])
                     p_mutations[j]['subtract'].extend(f_mutations[i]['subtract'])
                     p_mutations[j]['replace'].extend(f_mutations[i]['replace'])
+                    p_mutations[j]['replace'].extend(f_mutations[i]['replace_insitu'])
                 mutated_systems.extend(p_mutated_systems)
                 mutations.extend(p_mutations)
         return mutated_systems, mutations

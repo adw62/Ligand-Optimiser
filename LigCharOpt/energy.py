@@ -22,8 +22,8 @@ nm = unit.nanometer
 kj_mol = unit.kilojoules_per_mole
 
 class FSim(object):
-    def __init__(self, ligand_name, sim_name, input_folder, charge_only, vdw_only, num_gpu, offset, opt, temperature=300*unit.kelvin,
-                 friction=0.3/unit.picosecond, timestep=2.0*unit.femtosecond):
+    def __init__(self, ligand_name, sim_name, input_folder, charge_only, vdw_only, num_gpu, offset, opt, exclude_dualtopo
+                 temperature=300*unit.kelvin, friction=0.3/unit.picosecond, timestep=2.0*unit.femtosecond):
         """ A class for creating OpenMM context from input files and calculating free energy
         change when modifying the parameters of the system in the context.
 
@@ -37,6 +37,7 @@ class FSim(object):
         self.num_gpu = num_gpu
         self.offset = int(offset)
         self.opt = opt
+        self.exclude_dualtopo = exclude_dualtopo
         self.charge_only = charge_only
         self.vdw_only = vdw_only
         self.name = sim_name
@@ -223,14 +224,15 @@ class FSim(object):
                 ligand_ghost_exceptions.append(idx)
             nonbonded_force.addException(atom_added, new_atom[0], 0.0, 0.1, 0.0, False)
 
-        #add exclusions between all atoms in hybrid topo.
-        for atomi in all_new_atoms:
-            for atomj in all_new_atoms:
-                if atomj != atomi:
-                    try:
-                        nonbonded_force.addException(atomi, atomj, 0.0, 0.1, 0.0, False)
-                    except:
-                        pass
+        if self.exclude_dualtopo:
+            #add exclusions between all atoms in hybrid topo.
+            for atomi in all_new_atoms:
+                for atomj in all_new_atoms:
+                    if atomj != atomi:
+                        try:
+                            nonbonded_force.addException(atomi, atomj, 0.0, 0.1, 0.0, False)
+                        except:
+                            pass
 
         virt_excep_shift = [[x[0], y[2]-x[1]] for x, y in zip(h_exceptions, f_exceptions)]
         h_virt_excep = [frozenset((x[0], x[1])) for x in h_exceptions]
