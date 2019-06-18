@@ -83,7 +83,9 @@ class Optimize(object):
 
         if name == 'scipy':
             opt_charges, ddg_fs = Optimize.scipy_opt(self)
-            Mol2.write_mol2(self.mol, './', 'opt_lig', charges=opt_charges)
+            original_charges = [x[0] for x in self.wt_nonbonded]
+            charge_diff = [x-y for x,y in zip(original_charges, opt_charges)]
+            Mol2.write_mol2(self.mol, './', 'opt_lig', charges=charge_diff)
 
         elif name == 'FEP_only':
             #Get optimized charges from file to calc full FEP ddG
