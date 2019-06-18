@@ -152,11 +152,7 @@ class LigCharOpt(object):
         mutant_parameters.append(wt_parameters)
         mutations.append({'add': [], 'subtract': [], 'replace': [None], 'replace_insitu': [None]})
 
-        if self.job_type == 'F':
-            ghosts = True
-        elif self.job_type == 'S':
-            ghosts = False
-        mutant_params = Mutants(mutant_parameters, mutations, self.complex_sys[0], self.solvent_sys[0], ghost_flag=ghosts)
+        mutant_params = Mutants(mutant_parameters, mutations, self.complex_sys[0], self.solvent_sys[0])
         del mutant_parameters
 
         t0 = time.time()
@@ -352,7 +348,7 @@ def add_sulphurs(mol, new_element, auto_select, atom_list):
     for i, mutant in enumerate(mutated_systems):
         mutations.append({'add': [], 'subtract': [], 'replace': [], 'replace_insitu': []})
         for atom in atom_list[i]:
-            mutations[i]['replace'].append(int(atom))
+            mutations[i]['replace_insitu'].append(int(atom))
     return mutated_systems, mutations
 
 
