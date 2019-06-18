@@ -291,13 +291,16 @@ def run_ante(file_path, file_name, name, net_charge, gaff):
     elif gaff ==2:
         gaff_version='gaff2'
         leaprc='leaprc.gaff2'
+    #I think this is dangerous removed for safety
+    '''
     if os.path.exists(file_path+name+'.prmtop'):
         logger.debug('{0} found skipping antechamber and tleap for {1}'.format(file_path+name+'.prmtop', name))
     else:
-        moltool.amber.run_antechamber(molecule_name=file_path+name, input_filename=file_path+file_name,
-                                      net_charge=net_charge, gaff_version=gaff_version)
-        moltool.amber.run_tleap(molecule_name=file_path+name, gaff_mol2_filename=file_path+name+'.gaff.mol2',
-                                frcmod_filename=file_path+name+'.frcmod', leaprc=leaprc)
+    '''
+    moltool.amber.run_antechamber(molecule_name=file_path+name, input_filename=file_path+file_name,
+                                  net_charge=net_charge, gaff_version=gaff_version)
+    moltool.amber.run_tleap(molecule_name=file_path+name, gaff_mol2_filename=file_path+name+'.gaff.mol2',
+                            frcmod_filename=file_path+name+'.frcmod', leaprc=leaprc)
 
 
 def insert_atom(list, position, atom):
