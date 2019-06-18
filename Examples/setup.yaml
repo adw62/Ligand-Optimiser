@@ -1,0 +1,46 @@
+# Set the general options of our simulation
+options:
+  alchemical_pme_treatment: exact
+  minimize: yes
+  verbose: yes
+  temperature: 300*kelvin
+  pressure: 1*atmosphere # To run with NVT ensemble, set this option to "null". Defaults to 1 atm if excluded
+  platform: CUDA
+
+# Configure the specific molecules we will use for our systems
+# Note: We do not specify what the "receptor" and what the "ligand" is yet
+molecules:
+  # Define our receptor, T4-Lysozyme, we can call it whatever we want so we just use its name here as the directive
+  cb7:
+    filepath: input/receptor.mol2
+  # Define our ligand molecule
+  a1:
+    filepath: input/ligand.mol2
+    # Get the partial charges for the ligand by generating them from antechamber with the AM1-BCC charge method
+    antechamber:
+      charge_method: bcc
+
+# Define the solvent for our system, here we use Particle Mesh Ewald for long range interactions
+solvents:
+  # We can title this solvent whatever we want. We just call it "pme" for easy remembering
+  pme:
+    solvent_model: tip3p
+    nonbonded_method: PME # Main definition of the nonbonded method
+    nonbonded_cutoff: 9*angstroms # Cutoff between short- and long-range interactions
+    # Define how far away the periodic boundaries are from the receptor.
+    # The volume will be filled with TIP3P water through LEaP
+    clearance: 12*angstroms
+    # If ions are needed to neutralize the system, add these specific ions
+    positive_ion: Na+
+    negative_ion: Cl-
+
+# Define the systems: What is the ligand, receptor, and solvent we put them in
+systems:
+  # We can call our system anything we want, this example just uses a short name for the receptor hyphenated with the ligand
+  TEST:
+    # These names all use the names we defined previously
+    receptor: cb7
+    ligand: a1
+    solvent: pme
+    leap:
+      parameters: [leaprc.protein.ff14SB, leaprc.gaff2, leaprc.water.tip3p]
