@@ -183,6 +183,7 @@ def main(argv=None):
             rmsd = None
         if args['--c_atom_list']:
             c_atom_list = []
+            c_name = args['--c_atom_list']
             pairs = args['--c_atom_list']
             pairs = pairs.replace(" ", "")
             pairs = pairs.split('and')
@@ -211,6 +212,7 @@ def main(argv=None):
 
         if args['--o_atom_list']:
             o_atom_list = []
+            o_name = args['--o_atom_list']
             pairs = args['--o_atom_list']
             pairs = pairs.replace(" ", "")
             pairs = pairs.split('and')
@@ -248,7 +250,16 @@ def main(argv=None):
     if args['--output_folder']:
         output_folder = args['--output_folder']
     else:
-        output_folder = './' + mol_name + '_' + job_type + '/'
+        id = ''
+        if auto_select is not None:
+            id += '_auto_' + auto_select
+        if h_atom_list is not None:
+            id += '_H' + h_name
+        if c_atom_list is not None:
+            id += '_C' + c_name
+        if o_atom_list is not None:
+            id += '_O' + o_name
+        output_folder = './' + mol_name + '_' + job_type + id + '/'
         logger.debug(msg.format('output folder', output_folder))
 
     if args['--num_gpu']:

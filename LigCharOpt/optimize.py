@@ -2,6 +2,7 @@
 
 
 from .energy import FSim
+from .mol2 import Mol2
 from simtk import unit
 from scipy.optimize import minimize
 import copy
@@ -17,7 +18,7 @@ ee = e*e
 
 class Optimize(object):
     def __init__(self, wt_ligand, complex_sys, solvent_sys, output_folder, num_frames, equi, name, steps,
-                 charge_only, central_diff, num_fep, rmsd):
+                 charge_only, central_diff, num_fep, rmsd, mol):
 
         self.complex_sys = complex_sys
         self.solvent_sys = solvent_sys
@@ -29,6 +30,7 @@ class Optimize(object):
         self.central = central_diff
         self.num_fep = num_fep
         self.rmsd = rmsd
+        self.mol = mol
         self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep,\
         self.net_charge = Optimize.build_params(self, wt_ligand)
         self.excep_scaling = Optimize.get_exception_scaling(self)
@@ -81,6 +83,7 @@ class Optimize(object):
 
         if name == 'scipy':
             opt_charges, ddg_fs = Optimize.scipy_opt(self)
+            Mol2.write_mol2(self.mol, './', 'opt_lig', charges=opt_charges)
 
         elif name == 'FEP_only':
             #Get optimized charges from file to calc full FEP ddG
