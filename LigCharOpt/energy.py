@@ -22,7 +22,7 @@ nm = unit.nanometer
 kj_mol = unit.kilojoules_per_mole
 
 class FSim(object):
-    def __init__(self, ligand_name, sim_name, input_folder, charge_only, vdw_only, num_gpu, offset, opt, exclude_dualtopo
+    def __init__(self, ligand_name, sim_name, input_folder, charge_only, vdw_only, num_gpu, offset, opt, exclude_dualtopo,
                  temperature=300*unit.kelvin, friction=0.3/unit.picosecond, timestep=2.0*unit.femtosecond):
         """ A class for creating OpenMM context from input files and calculating free energy
         change when modifying the parameters of the system in the context.
