@@ -71,6 +71,8 @@ def main(argv=None):
     # Run the setup pipeline.
     if args['--yaml_path']:
         run_automatic_pipeline(args['--yaml_path'], complex_name, solvent_name)
+    else:
+        run_automatic_pipeline('./setup.yaml', complex_name, solvent_name)
 
     if args['--mol_name']:
         mol_name = args['--mol_name']
@@ -93,7 +95,7 @@ def main(argv=None):
     if args['--equi']:
         equi = int(args['--equi'])
     else:
-        equi = 250
+        equi = 100
         logger.debug(msg.format('Number of equlibriation steps', equi))
 
     if args['--net_charge']:
@@ -226,7 +228,7 @@ def main(argv=None):
             auto = ['1', '2', '3', 'ar']
             if auto_select not in auto:
                 raise ValueError('Allowed automatic selections {}'.format(auto))
-            if c_atom_list is not None or h_atom_list is not None:
+            if c_atom_list is not None or h_atom_list is not None or o_atom_list is not None:
                 raise ValueError('Automatic target atom selection will conflict with populated atom lists')
         else:
             if c_atom_list is None and h_atom_list is None and o_atom_list is None:
