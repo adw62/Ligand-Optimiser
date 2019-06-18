@@ -198,6 +198,7 @@ def main(argv=None):
 
         if args['--h_atom_list']:
             h_atom_list = []
+            h_name = args['--h_atom_list']
             pairs = args['--h_atom_list']
             pairs = pairs.replace(" ", "")
             pairs = pairs.split('and')
