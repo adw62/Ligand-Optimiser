@@ -15,6 +15,7 @@ ee = e*e
 nm = unit.nanometer
 kj_mol = unit.kilojoules_per_mole
 
+
 logger = logging.getLogger(__name__)
 
 class Mol2(object):
@@ -242,6 +243,7 @@ class MutatedLigand(object):
         exclusion_parameters = []
         bonded_parameters = []
         torsion_parameters = []
+        angle_parameters = []
         for force in system.getForces():
             if isinstance(force, mm.NonbondedForce):
                 nonbonded_force = force
@@ -249,6 +251,8 @@ class MutatedLigand(object):
                 harmonic_force = force
             if isinstance(force, mm.PeriodicTorsionForce):
                 torsion_force = force
+            if isinstance(force, mm.HarmonicAngleForce):
+                angle_force = force
         #nonbonded
         for index in range(system.getNumParticles()):
             charge, sigma, epsilon = nonbonded_force.getParticleParameters(index)
@@ -265,6 +269,10 @@ class MutatedLigand(object):
         for index in range(torsion_force.getNumTorsions()):
             p1, p2, p3, p4, period, phase, k = torsion_force.getTorsionParameters(index)
             torsion_parameters.append({"id": [p1, p2, p3, p4], "data": [period, phase, k]})
+        #angle
+        for index in range(angle_force.getNumAngles()):
+            p1, p2, p3, angle, k = angle_force.getAngleParameters(index)
+            angle_parameters.append({"id": [p1, p2, p3], "data": [angle, k]})
 
         #add subtracted atoms to mutant to insure one to one mapping with wild type atoms
         atoms_to_mute = sorted(atoms_to_mute)
@@ -274,14 +282,15 @@ class MutatedLigand(object):
             exclusion_parameters = shift_indexes(exclusion_parameters, atom_id)
             bonded_parameters = shift_indexes(bonded_parameters, atom_id)
             torsion_parameters = shift_indexes(torsion_parameters, atom_id)
+            angle_parameters = shift_indexes(angle_parameters, atom_id)
 
         #freeze lists
         exclusion_parameters = freeze_parameter_list(exclusion_parameters)
         bonded_parameters = freeze_parameter_list(bonded_parameters)
         torsion_parameters = freeze_parameter_list(torsion_parameters)
+        angle_parameters = freeze_parameter_list(angle_parameters)
 
-        return [nonbonded_parameters, exclusion_parameters,
-                bonded_parameters, torsion_parameters]
+        return [nonbonded_parameters, exclusion_parameters, bonded_parameters, torsion_parameters, angle_parameters]
 
 
 def run_ante(file_path, file_name, name, net_charge, gaff):

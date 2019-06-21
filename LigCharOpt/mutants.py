@@ -14,7 +14,7 @@ ee = e*e
 nm = unit.nanometer
 kj_mol = unit.kilojoules_per_mole
 radian = unit.radian
-
+mol = unit.mole
 
 class Mutants(object):
     def __init__(self, params, mutations, complex_sys, solvent_sys):
@@ -34,6 +34,7 @@ class Mutants(object):
         h_virt_excep = [complex_sys.h_virt_excep, solvent_sys.h_virt_excep]
         bond_order = [complex_sys.bond_list, solvent_sys.bond_list]
         torsion_order = [complex_sys.torsion_list, solvent_sys.torsion_list]
+        angle_order = [complex_sys.angle_list, solvent_sys.angle_list]
 
         self.offset = [complex_sys.offset, solvent_sys.offset]
         self.virtual_offset = [complex_sys.virt_atom_shift, solvent_sys.virt_atom_shift]
@@ -44,11 +45,14 @@ class Mutants(object):
                                                                       h_virt_excep, exception_order)
         bonded_params = Mutants.build_bonds(self, params, mutations, bond_order)
         torsion_params = Mutants.build_torsions(self, params, mutations, torsion_order)
+        angle_params = Mutants.build_angles(self, params, mutations, angle_order)
 
-        self.complex_params = [[x, y, z, l, k, p] for x, y, z, l, k, p
-                          in zip(nonbonded_params[0], nonbonded_ghosts[0], exception_params[0], exception_ghosts[0], bonded_params[0], torsion_params[0])]
-        self.solvent_params = [[x, y, z, l, k, p] for x, y, z, l, k, p
-                          in zip(nonbonded_params[1], nonbonded_ghosts[1], exception_params[1], exception_ghosts[1], bonded_params[1], torsion_params[1])]
+        self.complex_params = [[x, y, z, l, k, p, r] for x, y, z, l, k, p, r
+                          in zip(nonbonded_params[0], nonbonded_ghosts[0], exception_params[0],
+                                 exception_ghosts[0], bonded_params[0], torsion_params[0], angle_params[0])]
+        self.solvent_params = [[x, y, z, l, k, p, r] for x, y, z, l, k, p, r
+                          in zip(nonbonded_params[1], nonbonded_ghosts[1], exception_params[1], exception_ghosts[1],
+                                 bonded_params[1], torsion_params[1], angle_params[1])]
 
         self.all_systems_params = [self.complex_params, self.solvent_params]
 
@@ -228,6 +232,34 @@ class Mutants(object):
                 torsion_params[i].append(sys_torsion_params[j])
         return torsion_params
 
+    def build_angles(self, params, mutations, angle_order):
+        #reduce to only angles
+        params = copy.deepcopy([x[4] for x in params])
+        #find angle of subtraced atoms
+        ang_to_add = []
+        for i in range(len(params)):
+            atoms_to_mute = sorted(mutations[i]['subtract'])
+            angles = []
+            for atom_id in atoms_to_mute:
+                for angle in angle_order[0]:
+                    if atom_id+self.offset[0] in angle:
+                        angles.append([x-self.offset[0] for x in angle])
+            ang_to_add.append(angles)
+
+        #iterate over mutants
+        for i, x in enumerate(ang_to_add):
+            for angle in x:
+                params[i].append({'id': frozenset(angle), 'data': [1.9*radian, 0.0*kj_mol/(radian**2)]})
+
+        angle_params = [[], []]
+        for i, (sys_angle_order, sys_offset) in enumerate(zip(angle_order, self.offset)):
+            sys_angle_params = copy.deepcopy(params)
+            for j, mutant_params in enumerate(sys_angle_params):
+                map = {x['id']: x for x in mutant_params}
+                sys_angle_params[j] = [map[frozenset(int(x-sys_offset) for x in atom)] for atom in sys_angle_order]
+                angle_params[i].append(sys_angle_params[j])
+        return angle_params
+
     def build_fep_systems(self, system_idx, mutant_idx, windows):
         #build interpolated params
         interpolated_params = []
@@ -243,9 +275,10 @@ class Mutants(object):
                     interpolated_params[i][j][k] = copy.deepcopy(param1)
                     interpolated_params[i][j][k]['data'] = param2
 
-        mutant_systems = [[x, y, z, l, k, p] for x, y, z, l, k, p in zip(interpolated_params[0], interpolated_params[1],
-                                                                         interpolated_params[2], interpolated_params[3],
-                                                                         interpolated_params[4], interpolated_params[5])]
+        mutant_systems = [[x, y, z, l, k, p, r] for x, y, z, l, k, p, r in zip(interpolated_params[0], interpolated_params[1],
+                                                                            interpolated_params[2], interpolated_params[3],
+                                                                            interpolated_params[4], interpolated_params[5],
+                                                                            interpolated_params[6])]
         return mutant_systems
 
 
@@ -259,7 +292,7 @@ def unit_linspace(x, y, i):
     except:
         unit2 = None
     if unit1 != unit2:
-        raise ValueError('Unmatched units')
+        raise ValueError('unit1 {} does not match unit2 {}'.format(unit1, unit2))
     if unit1 is None:
         ans = np.linspace(x, y, i)
         ans = np.floor(ans)

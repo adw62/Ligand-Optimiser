@@ -64,14 +64,22 @@ class FSim(object):
             if isinstance(force, mm.PeriodicTorsionForce):
                 torsion_force = force
                 self.torsion_index = force_index
+            if isinstance(force, mm.HarmonicAngleForce):
+                angle_force = force
+                self.angle_index = force_index
             force.setForceGroup(force_index)
 
         #add switching function
         nonbonded_force.setSwitchingDistance(0.9*unit.nanometers)
         nonbonded_force.setUseSwitchingFunction(True)
 
-        self.ligand_info, self.exceptions_list, self.bond_list,\
-        self.torsion_list = get_ligand_info(ligand_name, snapshot, nonbonded_force, bond_force, torsion_force, system)
+        self.ligand_info, self.ligand_lists = get_ligand_info(ligand_name, snapshot, nonbonded_force,
+                                                              bond_force, torsion_force, angle_force)
+
+        self.exceptions_list = self.ligand_lists[0]
+        self.bond_list = self.ligand_lists[1]
+        self.torsion_list = self.ligand_lists[2]
+        self.angle_list = self.ligand_lists[3]
 
         self.virt_atom_shift = nonbonded_force.getNumParticles()
         #Add dual topology
@@ -326,8 +334,15 @@ class FSim(object):
             force.setTorsionParameters(torsion_idx, particle_idxs[0], particle_idxs[1], particle_idxs[2], particle_idxs[3],
                                        data[0], data[1], data[2])
 
-    def apply_nonbonded_parameters(self, force, params, ghost_params, excep, ghost_excep):
+    def apply_angle_parameters(self, force, mutant_parameters):
+        for angle_idx, particle_idxs, angle in zip(self.ligand_info[4], self.angle_list, mutant_parameters):
+            if frozenset((particle_idxs[0]-self.offset, particle_idxs[1]-self.offset, particle_idxs[2]-self.offset)) != angle['id']:
+                raise (ValueError('Fluorify has failed to generate angles correctly please raise '
+                                  'this as and issue at https://github.com/adw62/Fluorify'))
+            data = angle['data']
+            force.setAngleParameters(angle_idx, particle_idxs[0], particle_idxs[1], particle_idxs[2], data[0], data[1])
 
+    def apply_nonbonded_parameters(self, force, params, ghost_params, excep, ghost_excep):
         #nonbonded
         for i, index in enumerate(self.ligand_info[0]):
             atom = int(index)
@@ -460,6 +475,7 @@ def mutant_energy(idxs, sim, dcd, top, num_frames, all_mutants):
         nonbonded_force = system.getForce(sim.nonbonded_index)
     harmonic_force = system.getForce(sim.harmonic_index)
     torsion_force = system.getForce(sim.torsion_index)
+    angle_force = system.getForce(sim.angle_index)
     num_mutants = len(all_mutants)
     for i in idxs:
         if i == int(num_mutants-1):
@@ -474,13 +490,16 @@ def mutant_energy(idxs, sim, dcd, top, num_frames, all_mutants):
             harmonic_force.updateParametersInContext(context)
             sim.apply_torsion_parameters(torsion_force, all_mutants[i][5])
             torsion_force.updateParametersInContext(context)
+            sim.apply_angle_parameters(angle_force, all_mutants[i][6])
+            angle_force.updateParametersInContext(context)
         mutant_energies = []
         append = mutant_energies.append
         for frame in frames(dcd, top, maxframes=num_frames):
             context.setPositions(frame.xyz[0])
             context.setPeriodicBoxVectors(frame.unitcell_vectors[0][0],
                                           frame.unitcell_vectors[0][1], frame.unitcell_vectors[0][2])
-            energy = context.getState(getEnergy=True, groups={sim.nonbonded_index, sim.harmonic_index, sim.torsion_index}).getPotentialEnergy()
+            energy = context.getState(getEnergy=True, groups={sim.nonbonded_index, sim.harmonic_index,
+                                                              sim.torsion_index, sim.harmonic_index}).getPotentialEnergy()
             append(energy)
         mutants_systems_energies.append(mutant_energies)
     return mutants_systems_energies
@@ -505,6 +524,7 @@ def run_fep(idxs, sim, system, pdb, n_steps, n_iterations, all_mutants):
     u_kln = np.zeros([nstates, total_states, n_iterations], np.float64)
     harmonic_force = system.getForce(sim.harmonic_index)
     torsion_force = system.getForce(sim.torsion_index)
+    angle_force = system.getForce(sim.angle_index)
     for k, m_id in enumerate(idxs):
         #m_id, id for mutant
         logger.debug('Computing potentials for FEP window {0}/{1} on GPU {2}'.format(m_id+1, total_states, device))
@@ -517,6 +537,8 @@ def run_fep(idxs, sim, system, pdb, n_steps, n_iterations, all_mutants):
                 harmonic_force.updateParametersInContext(context)
                 sim.apply_torsion_parameters(torsion_force, all_mutants[m_id][5])
                 torsion_force.updateParametersInContext(context)
+                sim.apply_angle_parameters(angle_force, all_mutants[m_id][6])
+                angle_force.updateParametersInContext(context)
             # Run some dynamics
             integrator.step(n_steps)
             # Compute energies at all alchemical states
@@ -529,8 +551,12 @@ def run_fep(idxs, sim, system, pdb, n_steps, n_iterations, all_mutants):
                     harmonic_force.updateParametersInContext(context)
                     sim.apply_torsion_parameters(torsion_force, global_mutant[5])
                     torsion_force.updateParametersInContext(context)
-                u_kln[k, l, iteration] = context.getState(getEnergy=True,
-                        groups={sim.nonbonded_index, sim.harmonic_index, sim.torsion_index}).getPotentialEnergy() / sim.kT
+                    sim.apply_angle_parameters(angle_force, global_mutant[6])
+                    angle_force.updateParametersInContext(context)
+                u_kln[k, l, iteration] = context.getState(getEnergy=True, groups={sim.nonbonded_index,
+                                                                                  sim.harmonic_index,
+                                                                                  sim.torsion_index,
+                                                                                  sim.angle_index}).getPotentialEnergy() / sim.kT
     return u_kln
 
 
@@ -585,10 +611,11 @@ def run_dynamics(dcd_name, system, sim, equi, n_steps):
     logger.debug('Done!')
 
 
-def get_ligand_info(ligand_name, snapshot, nonbonded_force, harmonic_force, torsion_force, system):
+def get_ligand_info(ligand_name, snapshot, nonbonded_force, harmonic_force, torsion_force, angle_force):
     ligand_atoms = snapshot.topology.select('resname {}'.format(ligand_name))
     if len(ligand_atoms) == 0:
         raise ValueError('Did not find ligand in supplied topology by name {}'.format(ligand_name))
+
     exception_list = list()
     ligand_exceptions = []
     for exception_index in range(nonbonded_force.getNumExceptions()):
@@ -596,6 +623,7 @@ def get_ligand_info(ligand_name, snapshot, nonbonded_force, harmonic_force, tors
         if set([particle1, particle2]).intersection(ligand_atoms):
             exception_list.append((particle1, particle2))
             ligand_exceptions.append(exception_index)
+
     bond_list = list()
     ligand_bonds = []
     for bond_index in range(harmonic_force.getNumBonds()):
@@ -603,6 +631,7 @@ def get_ligand_info(ligand_name, snapshot, nonbonded_force, harmonic_force, tors
         if set([particle1, particle2]).intersection(ligand_atoms):
             bond_list.append((particle1, particle2))
             ligand_bonds.append(bond_index)
+
     torsion_list = list()
     ligand_torsions = []
     for torsion_index in range(torsion_force.getNumTorsions()):
@@ -610,7 +639,18 @@ def get_ligand_info(ligand_name, snapshot, nonbonded_force, harmonic_force, tors
         if set([particle1, particle2, particle3, particle4]).intersection(ligand_atoms):
             torsion_list.append((particle1, particle2, particle3, particle4))
             ligand_torsions.append(torsion_index)
-    return [ligand_atoms, ligand_exceptions, ligand_bonds, ligand_torsions], exception_list, bond_list, torsion_list,
+
+    angle_list = list()
+    ligand_angle = []
+    for angle_index in range(angle_force.getNumAngles()):
+        particle1, particle2, particle3, angle, k = angle_force.getAngleParameters(angle_index)
+        if set([particle1, particle2, particle3]).intersection(ligand_atoms):
+            angle_list.append((particle1, particle2, particle3))
+            ligand_angle.append(angle_index)
+
+    return [ligand_atoms, ligand_exceptions, ligand_bonds, ligand_torsions, ligand_angle],\
+           [exception_list, bond_list, torsion_list, angle_list]
+
 
 
 def grouper(list_to_distribute, chunk):

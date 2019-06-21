@@ -188,9 +188,9 @@ def main(argv=None):
             rmsd = None
         if args['--c_atom_list']:
             c_atom_list = []
-            c_name = args['--c_atom_list']
             pairs = args['--c_atom_list']
             pairs = pairs.replace(" ", "")
+            c_name = pairs.replace(",", "")
             pairs = pairs.split('and')
             for pair in pairs:
                 tmp = []
@@ -203,9 +203,9 @@ def main(argv=None):
 
         if args['--h_atom_list']:
             h_atom_list = []
-            h_name = args['--h_atom_list']
             pairs = args['--h_atom_list']
             pairs = pairs.replace(" ", "")
+            h_name = pairs.replace(",", "")
             pairs = pairs.split('and')
             for pair in pairs:
                 tmp = []
@@ -218,9 +218,9 @@ def main(argv=None):
 
         if args['--o_atom_list']:
             o_atom_list = []
-            o_name = args['--o_atom_list']
             pairs = args['--o_atom_list']
             pairs = pairs.replace(" ", "")
+            o_name = pairs.replace(",", "")
             pairs = pairs.split('and')
             for pair in pairs:
                 tmp = []
