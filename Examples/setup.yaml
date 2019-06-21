@@ -1,4 +1,4 @@
-These options are needed for YANK but not used by Fluorify
+#These options are needed for YANK but not used by Fluorify
 options:
   alchemical_pme_treatment: exact
   minimize: yes
