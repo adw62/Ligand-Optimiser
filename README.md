@@ -3,17 +3,9 @@ Optimise the atomistic charges of ligand to maximize receptor binding affinity.
 
 # Installation
 
-- Download from git
+- Via Conda: 
 
-  git clone https://github.com/adw62/Ligand_Charge_Optimiser/
-
-- Install via pip
-
-  pip install path/to/directory
-  
-- This package is dependant on Fluorify
-
-  Follow install instructions at https://github.com/adw62/Fluorify
+  conda install -c adw62 ligcharopt
   
 # Options
 
