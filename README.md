@@ -13,7 +13,7 @@ Optimise the atomistic charges of ligand to maximize receptor binding affinity.
   
 - This package is dependant on Fluorify
 
-  Follow install instrutions at https://github.com/adw62/Fluorify
+  Follow install instructions at https://github.com/adw62/Fluorify
   
 # Options
 
