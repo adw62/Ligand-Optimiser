@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
 
-from .energy import FSim
-from .mol2 import Mol2
+from Fluorify.energy import *
+from Fluorify.mol2 import *
 from simtk import unit
 from scipy.optimize import minimize
 import copy

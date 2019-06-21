@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
-from .energy import FSim
-from .mol2 import Mol2, MutatedLigand
+from Fluorify.energy import *
+from Fluorify.mol2 import *
+from Fluorify.mutants import *
 from .optimize import Optimize
-from .mutants import Mutants
 
 import os
 import time
