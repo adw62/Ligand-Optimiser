@@ -11,11 +11,9 @@ Optimise the atomistic charges of ligand to maximize receptor binding affinity.
 
   pip install path/to/directory
   
-- Install yank and multiprocess to get all dependencies
- 
-  conda install -c omnia yank
-  
-  conda install -c conda-forge multiprocess
+- This package is dependant on Fluorify
+
+ Follow install instrutions at https://github.com/adw62/Fluorify
   
 # Options
 
