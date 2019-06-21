@@ -133,6 +133,7 @@ def main(argv=None):
         exclude_dualtopo = int(args['--exclude_dualtopo'])
     else:
         exclude_dualtopo = True
+        logger.debug('Excluding dual topology from seeing itself')
 
     if args['--optimize']:
         opt = int(args['--optimize'])

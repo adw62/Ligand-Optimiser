@@ -119,10 +119,10 @@ class LigCharOpt(object):
             Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, equi, opt_name, opt_steps,
                      charge_only, central_diff, self.num_fep, rmsd, self.mol)
         else:
-            LigCharOpt.scanning(self, wt_ligand, auto_select, c_atom_list, h_atom_list, o_atom_list)
+            LigCharOpt.fep(self, wt_ligand, auto_select, c_atom_list, h_atom_list, o_atom_list)
 
-    def scanning(self, wt_ligand, auto_select, c_atom_list, h_atom_list, o_atom_list):
-        """preparation and running scanning analysis
+    def fep(self, wt_ligand, auto_select, c_atom_list, h_atom_list, o_atom_list):
+        """preparation and running of free energy calculations
         """
 
         #Generate mutant systems with selected pertibations
@@ -445,7 +445,6 @@ def get_ligand_offset(input_files, mol2_ligand_atoms, ligand_name):
     offset = []
     for file in input_files:
         snapshot = md.load(file)
-        diff = snapshot.topology.select('resname {} and name {}'.format(ligand_name, mol2_ligand_atoms[0]))
         offset.append(snapshot.topology.select('resname {} and name {}'.format(ligand_name, mol2_ligand_atoms[0])))
     return tuple(offset)
 
