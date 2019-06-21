@@ -13,7 +13,7 @@ Optimise the atomistic charges of ligand to maximize receptor binding affinity.
   
 - This package is dependant on Fluorify
 
- Follow install instrutions at https://github.com/adw62/Fluorify
+  Follow install instrutions at https://github.com/adw62/Fluorify
   
 # Options
 
@@ -127,6 +127,12 @@ Optimise the atomistic charges of ligand to maximize receptor binding affinity.
 
     note: This software is not configured to use MPI and should only be run on one node, however this node may have multiple GPUs
     default: 1
+    
+[--exclude_dualtopo=BOOL] Excludes any atoms in daul topology from seeing each other.
+    
+    note: Fluorines are added to a dual topology as typically the hydrogens the are mutated from are constrained. It is not possiable to alchemically interpolate the hydrogen constraint into a C-F harmonic bond.
+    default: 1
+
 
 # Example usage
 
