@@ -8,13 +8,9 @@ from .optimize import Optimize
 
 import os
 import time
-import itertools
-import mdtraj as md
-import numpy as np
 import shutil
 from simtk import unit
 import logging
-import copy
 
 logger = logging.getLogger(__name__)
 
@@ -80,10 +76,14 @@ class LigCharOpt(object):
 
         logger.debug('Loading complex and solvent systems...')
         tests = ['SSP_convergence_test', 'FEP_convergence_test', 'FS_test']
-        run_dynamics = True
+
         if opt == True:
             if opt_name in tests:
                 run_dynamics = False
+            else:
+                run_dynamics = True
+        else:
+            run_dynamics = False
 
         #COMPLEX
         self.complex_sys = []
