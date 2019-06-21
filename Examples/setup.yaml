@@ -1,4 +1,4 @@
-# Set the general options of our simulation
+These options are needed for YANK but not used by Fluorify
 options:
   alchemical_pme_treatment: exact
   minimize: yes
@@ -25,7 +25,7 @@ solvents:
   # We can title this solvent whatever we want. We just call it "pme" for easy remembering
   pme:
     solvent_model: tip3p
-    nonbonded_method: PME # Main definition of the nonbonded method
+    nonbonded_method: PME #This option is needed for YANK but not used by Fluorify
     nonbonded_cutoff: 9*angstroms # Cutoff between short- and long-range interactions
     # Define how far away the periodic boundaries are from the receptor.
     # The volume will be filled with TIP3P water through LEaP
