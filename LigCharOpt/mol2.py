@@ -15,7 +15,6 @@ ee = e*e
 nm = unit.nanometer
 kj_mol = unit.kilojoules_per_mole
 
-
 logger = logging.getLogger(__name__)
 
 class Mol2(object):
@@ -300,11 +299,10 @@ def run_ante(file_path, file_name, name, net_charge, gaff):
     elif gaff ==2:
         gaff_version='gaff2'
         leaprc='leaprc.gaff2'
-    #I think this is dangerous removed for safety
+    # I think this is dangerous removed for safety
     '''
     if os.path.exists(file_path+name+'.prmtop'):
         logger.debug('{0} found skipping antechamber and tleap for {1}'.format(file_path+name+'.prmtop', name))
-    else:
     '''
     moltool.amber.run_antechamber(molecule_name=file_path+name, input_filename=file_path+file_name,
                                   net_charge=net_charge, gaff_version=gaff_version)

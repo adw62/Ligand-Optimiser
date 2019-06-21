@@ -14,7 +14,6 @@ ee = e*e
 nm = unit.nanometer
 kj_mol = unit.kilojoules_per_mole
 radian = unit.radian
-mol = unit.mole
 
 class Mutants(object):
     def __init__(self, params, mutations, complex_sys, solvent_sys):

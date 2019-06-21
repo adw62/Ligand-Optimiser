@@ -37,7 +37,7 @@ class FSim(object):
         self.num_gpu = num_gpu
         self.offset = int(offset)
         self.opt = opt
-        self.exclude_dualtopo = exclude_dualtopo
+        self.exclude_dualtopo=exclude_dualtopo
         self.charge_only = charge_only
         self.vdw_only = vdw_only
         self.name = sim_name
@@ -553,10 +553,8 @@ def run_fep(idxs, sim, system, pdb, n_steps, n_iterations, all_mutants):
                     torsion_force.updateParametersInContext(context)
                     sim.apply_angle_parameters(angle_force, global_mutant[6])
                     angle_force.updateParametersInContext(context)
-                u_kln[k, l, iteration] = context.getState(getEnergy=True, groups={sim.nonbonded_index,
-                                                                                  sim.harmonic_index,
-                                                                                  sim.torsion_index,
-                                                                                  sim.angle_index}).getPotentialEnergy() / sim.kT
+                u_kln[k, l, iteration] = context.getState(getEnergy=True,
+                        groups={sim.nonbonded_index, sim.harmonic_index, sim.torsion_index, sim.angle_index}).getPotentialEnergy() / sim.kT
     return u_kln
 
 
@@ -647,10 +645,8 @@ def get_ligand_info(ligand_name, snapshot, nonbonded_force, harmonic_force, tors
         if set([particle1, particle2, particle3]).intersection(ligand_atoms):
             angle_list.append((particle1, particle2, particle3))
             ligand_angle.append(angle_index)
-
     return [ligand_atoms, ligand_exceptions, ligand_bonds, ligand_torsions, ligand_angle],\
            [exception_list, bond_list, torsion_list, angle_list]
-
 
 
 def grouper(list_to_distribute, chunk):
