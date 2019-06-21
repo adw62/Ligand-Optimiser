@@ -130,7 +130,7 @@ Optimise the atomistic charges of ligand to maximize receptor binding affinity.
 
 # Example usage
 
-Optimise atomic charges of a ligand and verify the ddG of this optisation with one full FEP calculation 
+Optimise atomic charges of a ligand and verify the ddG of this optimisation with one full FEP calculation 
 
     LigCharOpt --optimize='1' --charge_only='1' --yaml_path='./setup.yaml'
 
