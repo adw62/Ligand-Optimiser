@@ -47,12 +47,21 @@ class Mutants(object):
         torsion_params = Mutants.build_torsions(self, params, mutations, torsion_order)
         angle_params = Mutants.build_angles(self, params, mutations, angle_order)
 
-        self.complex_params = [[x, y, z, l, k, p, r] for x, y, z, l, k, p, r
-                          in zip(nonbonded_params[0], nonbonded_ghosts[0], exception_params[0],
-                                 exception_ghosts[0], bonded_params[0], torsion_params[0], angle_params[0])]
-        self.solvent_params = [[x, y, z, l, k, p, r] for x, y, z, l, k, p, r
-                          in zip(nonbonded_params[1], nonbonded_ghosts[1], exception_params[1], exception_ghosts[1],
-                                 bonded_params[1], torsion_params[1], angle_params[1])]
+        self.complex_params = list(zip(nonbonded_params[0],
+                                       nonbonded_ghosts[0],
+                                       exception_params[0],
+                                       exception_ghosts[0],
+                                       bonded_params[0],
+                                       torsion_params[0],
+                                       angle_params[0]))
+
+        self.solvent_params = list(zip(nonbonded_params[1],
+                                       nonbonded_ghosts[1],
+                                       exception_params[1],
+                                       exception_ghosts[1],
+                                       bonded_params[1],
+                                       torsion_params[1],
+                                       angle_params[1]))
 
         self.all_systems_params = [self.complex_params, self.solvent_params]
 
@@ -275,10 +284,13 @@ class Mutants(object):
                     interpolated_params[i][j][k] = copy.deepcopy(param1)
                     interpolated_params[i][j][k]['data'] = param2
 
-        mutant_systems = [[x, y, z, l, k, p, r] for x, y, z, l, k, p, r in zip(interpolated_params[0], interpolated_params[1],
-                                                                            interpolated_params[2], interpolated_params[3],
-                                                                            interpolated_params[4], interpolated_params[5],
-                                                                            interpolated_params[6])]
+        mutant_systems = list(zip(interpolated_params[0],
+                                  interpolated_params[1],
+                                  interpolated_params[2],
+                                  interpolated_params[3],
+                                  interpolated_params[4],
+                                  interpolated_params[5],
+                                  interpolated_params[6]))
         return mutant_systems
 
 
