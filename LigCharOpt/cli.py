@@ -17,9 +17,10 @@ usage = """
 LIGCHAROPT
 Usage:
   LigCharOpt [--output_folder=STRING] [--mol_name=STRING] [--ligand_name=STRING] [--complex_name=STRING] [--solvent_name=STRING]
-            [--yaml_path=STRING] [--o_atom_list=LIST] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT] [--net_charge=INT]
-            [--gaff_ver=INT] [--equi=INT] [--num_fep=INT] [--auto_select=STRING] [--charge_only=BOOL] [--vdw_only=BOOL] [--optimize=BOOL]
-            [--num_gpu=INT] [--opt_name=STRING] [--rmsd=FLOAT] [--exclude_dualtopo=BOOL] [--opt_steps=INT] [--central_diff=BOOL] [--job_type=STRING]...
+            [--yaml_path=STRING] [--o_atom_list=LIST] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT]
+            [--net_charge=INT] [--gaff_ver=INT] [--equi=INT] [--num_fep=INT] [--auto_select=STRING] [--charge_only=BOOL]
+            [--vdw_only=BOOL] [--optimize=BOOL] [--num_gpu=INT] [--opt_name=STRING] [--rmsd=FLOAT] [--exclude_dualtopo=BOOL]
+            [--opt_steps=INT] [--central_diff=BOOL] [--restart=STR] [--job_type=STRING]...
 """
 
 
@@ -280,9 +281,18 @@ def main(argv=None):
     else:
         num_fep = 1
         logger.debug(msg.format('number of FEP calculations', num_fep))
+        
+    if args['--restart']:
+        restart = args['--restart']
+        if int(restart):
+            restart = [True, './charges_opt']
+            logger.debug('Using default restart file ./charge_opt')
+    else:
+        restart = [False, '']
+        
 
 
     LigCharOpt(output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name,
          job_type, auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, vdw_only, gaff_ver,
-             opt, num_gpu, num_fep, equi, central_diff, opt_name, opt_steps, rmsd, exclude_dualtopo)
+             opt, num_gpu, num_fep, equi, central_diff, opt_name, opt_steps, rmsd, exclude_dualtopo, restart)
 

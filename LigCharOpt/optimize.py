@@ -18,7 +18,7 @@ ee = e*e
 
 class Optimize(object):
     def __init__(self, wt_ligand, complex_sys, solvent_sys, output_folder, num_frames, equi, name, steps,
-                 charge_only, central_diff, num_fep, rmsd, mol):
+                 charge_only, central_diff, num_fep, rmsd, mol, restart):
 
         self.complex_sys = complex_sys
         self.solvent_sys = solvent_sys
@@ -33,8 +33,22 @@ class Optimize(object):
         self.mol = mol
         self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep,\
         self.net_charge = Optimize.build_params(self, wt_ligand)
-        self.excep_scaling = Optimize.get_exception_scaling(self)
+        if restart[0]:
+            self.excep_scaling = Optimize.get_exception_scaling(self)
+            self.wt_nonbonded = Optimize.read_charges(self, restart[1])
+            charges = [x[0] for x in self.wt_nonbonded]
+            self.wt_excep = Optimize.get_charge_product(self, charges)
+        else:
+            self.excep_scaling = Optimize.get_exception_scaling(self)
         Optimize.optimize(self, name)
+
+    def read_charges(self, file):
+        charges = []
+        f = open(file, 'r')
+        for line in f:
+            q = line.strip('\n')
+            charges.append([float(q)])
+        return charges
 
     def build_params(self, wt_ligand):
         if self.charge_only == False:
@@ -155,8 +169,8 @@ class Optimize(object):
                 ddg_error = (complex_error ** 2 + solvent_error ** 2) ** 0.5
                 logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
 
-            if name == 'FEP_only':
-                logger.debug('ddG Fluorine Scanning = {}'.format(ddg_fs))
+            if name != 'FEP_only':
+                logger.debug('ddG SSP = {}'.format(ddg_fs))
 
     def build_perturbed_test_charges(self, perturbation):
         og_charges = [x[0] for x in self.wt_nonbonded]
