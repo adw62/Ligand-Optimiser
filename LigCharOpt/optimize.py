@@ -4,7 +4,6 @@
 from Fluorify.energy import *
 from Fluorify.mol2 import *
 from simtk import unit
-from scipy.optimize import minimize
 import copy
 import logging
 import numpy as np
@@ -95,8 +94,8 @@ class Optimize(object):
         """optimising ligand charges
         """
 
-        if name == 'scipy':
-            opt_charges, ddg_fs = Optimize.scipy_opt(self)
+        if name == 'gradient_decent':
+            opt_charges, ddg_fs = Optimize.gradient_decent(self)
             original_charges = [x[0] for x in self.wt_nonbonded]
             charge_diff = [x-y for x,y in zip(original_charges, opt_charges)]
             Mol2.write_mol2(self.mol, './', 'opt_lig', charges=charge_diff)
@@ -201,50 +200,39 @@ class Optimize(object):
 
         return complex_dg, complex_error, solvent_dg, solvent_error
 
-
-    def get_bounds(self, current_charge, periter_change, total_change):
-        og_charge = [x[0] for x in self.wt_nonbonded]
-        change = [abs(x-y) for x, y in zip(current_charge, og_charge)]
-        bnds = []
-        for x, y in zip(change, current_charge):
-            if x >= total_change:
-                bnds.append((y-periter_change, y))
-            elif x <= -total_change:
-                bnds.append((y, y+periter_change))
-            else:
-                bnds.append((y-periter_change, y+periter_change))
-        return bnds
-
-
-    def scipy_opt(self):
-        og_charges = [x[0] for x in self.wt_nonbonded]
+    def gradient_decent(self):
+        og_charges = np.array([x[0] for x in self.wt_nonbonded])
         charges = copy.deepcopy(og_charges)
-        con1 = {'type': 'eq', 'fun': net_charge_con, 'args': [self.net_charge]}
-        con2 = {'type': 'ineq', 'fun': rmsd_change_con, 'args': [og_charges, self.rmsd]}
-        cons = [con1, con2]
         ddg = 0.0
-        for step in range(self.steps):
+        scale = self.rmsd
+        step = 0
+        assert(objective(og_charges, charges, self), 0.0)
+        while step < self.steps:
             write_charges('charges_{}'.format(step), charges)
-            bounds = Optimize.get_bounds(self, charges, 0.01, 0.5)
-            sol = minimize(objective, charges, bounds=bounds, options={'maxiter': 1}, jac=gradient,
-                           args=(charges, self), constraints=cons)
             prev_charges = charges
-            charges = sol.x
+            grad = np.array(gradient(charges, prev_charges, self))
+            constrained_step = constrain_net_charge(grad)
+            norm_const_step = constrained_step / np.linalg.norm(grad)
+            charges =- scale*norm_const_step
+            forward_ddg = objective(charges, prev_charges, self)
             exceptions = Optimize.get_charge_product(self, charges)
             com_mut_param, sol_mut_param = build_opt_params([charges], [exceptions], self)
 
-            #run new dynamics with updated charges
+            # run new dynamics with updated charges
             self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex',
-                                                                            self.num_frames, self.equi, com_mut_param[0])
+                                                                            self.num_frames, self.equi,
+                                                                            com_mut_param[0])
             self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent',
-                                                                            self.num_frames, self.equi, sol_mut_param[0])
+                                                                            self.num_frames, self.equi,
+                                                                            sol_mut_param[0])
             logger.debug('Computing reverse leg of accepted step...')
-            reverse_ddg = -1*objective(prev_charges, charges, self)
-            logger.debug('Forward {} and reverse {} steps'.format(sol.fun, reverse_ddg))
-            ddg += (sol.fun+reverse_ddg)/2.0
-            logger.debug(sol)
-            logger.debug("Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step+1, self.steps))
+            reverse_ddg = -1 * objective(prev_charges, charges, self)
+            logger.debug('Forward {} and reverse {} steps'.format(forward_ddg, reverse_ddg))
+            ddg += (forward_ddg + reverse_ddg) / 2.0
+            logger.debug(
+                "Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step + 1, self.steps))
             write_charges('charges_opt', charges)
+            step += 1
         return list(charges), ddg
 
     def build_fep_params(self, params, windows):
@@ -344,18 +332,16 @@ def gradient(peturbed_charges, current_charges, sim):
     else:
         return binding_free_energy
 
+def constrain_net_charge(grad):
+    val = np.sum(grad) / len(grad)
+    grad = [x - val for x in grad]
+    return np.array(grad)
 
 def net_charge_con(current_charge, net_charge):
     sum_ = net_charge
     for charge in current_charge:
         sum_ = sum_ - charge
     return sum_
-
-
-def rmsd_change_con(current_charge, og_charge, rmsd):
-    maximum_rmsd = rmsd
-    rmsd = (np.average([(x - y) ** 2 for x, y in zip(current_charge, og_charge)])) ** 0.5
-    return maximum_rmsd - rmsd
 
 
 def write_charges(name, charges):
