@@ -17,7 +17,7 @@ ee = e*e
 
 class Optimize(object):
     def __init__(self, wt_ligand, complex_sys, solvent_sys, output_folder, num_frames, equi, name, steps,
-                 charge_only, central_diff, num_fep, rmsd, mol, restart):
+                 charge_only, central_diff, num_fep, step_size, mol, restart):
 
         self.complex_sys = complex_sys
         self.solvent_sys = solvent_sys
@@ -28,7 +28,7 @@ class Optimize(object):
         self.charge_only = charge_only
         self.central = central_diff
         self.num_fep = num_fep
-        self.rmsd = rmsd
+        self.step_size = step_size
         self.mol = mol
         self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep,\
         self.net_charge = Optimize.build_params(self, wt_ligand)
@@ -47,6 +47,7 @@ class Optimize(object):
         for line in f:
             q = line.strip('\n')
             charges.append([float(q)])
+        f.close()
         return charges
 
     def build_params(self, wt_ligand):
@@ -145,16 +146,21 @@ class Optimize(object):
                     logger.debug('ddG Fluorine Scanning for {} frames for replica {} = {}'.format(num_frames, replica, ddG))
 
         elif name == 'FEP_convergence_test':
-            sampling = [10, 20, 30, 40, 50, 60, 70, 80, 90]
-            peturb_charges = Optimize.build_perturbed_test_charges(self, 0.01)
+            sampling = range(4,410,20)
+            og_charges = [x[0] for x in self.wt_nonbonded]
+            peturb_charges = copy.deepcopy(og_charges)
+            peturb_charges[0] = peturb_charges[0] + 1.5e-04
+            windows = 3
             for num_frames in sampling:
                 for replica in range(self.num_fep):
                     logger.debug('Replica {}/{}'.format(replica+1, self.num_fep))
-                    steps = math.ceil((num_frames*2500)/(50*12))
-                    complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, peturb_charges, steps)
+                    steps = math.ceil((num_frames*2500)/(50*windows))
+                    complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, peturb_charges,
+                                                                                            steps, windows)
                     ddg_fep = complex_dg - solvent_dg
                     ddg_error = (complex_error ** 2 + solvent_error ** 2) ** 0.5
-                    logger.debug('ddG FEP for frames {} for replica {} = {} +- {}'.format(num_frames, replica, ddg_fep, ddg_error))
+                    logger.debug('ddG FEP for frames {} for replica {} = {} +- {}'.format(num_frames, replica,
+                                                                                          ddg_fep, ddg_error))
 
         else:
             raise ValueError('No other optimizers implemented')
@@ -183,7 +189,7 @@ class Optimize(object):
             raise ValueError('Net charge change')
         return peturb_charges
 
-    def run_fep(self, opt_charges, steps):
+    def run_fep(self, opt_charges, steps, windows=12):
         original_charges = [x[0] for x in self.wt_nonbonded]
         opt_exceptions = Optimize.get_charge_product(self, opt_charges)
         logger.debug('Original charges: {}'.format(original_charges))
@@ -191,8 +197,8 @@ class Optimize(object):
         mut_charges = [opt_charges, original_charges]
         mut_exceptions = [opt_exceptions, self.wt_excep]
         com_mut_param, sol_mut_param = build_opt_params(mut_charges, mut_exceptions, self)
-        com_fep_params = Optimize.build_fep_params(self, com_mut_param, 12)
-        sol_fep_params = Optimize.build_fep_params(self, sol_mut_param, 12)
+        com_fep_params = Optimize.build_fep_params(self, com_mut_param, windows)
+        sol_fep_params = Optimize.build_fep_params(self, sol_mut_param, windows)
         complex_dg, complex_error = self.complex_sys[0].run_parallel_fep(com_fep_params,
                                                                          None, None, steps, 50, None)
         solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(sol_fep_params,
@@ -204,7 +210,7 @@ class Optimize(object):
         og_charges = np.array([x[0] for x in self.wt_nonbonded])
         charges = copy.deepcopy(og_charges)
         ddg = 0.0
-        scale = self.rmsd
+        scale = self.step_size
         step = 0
         assert(objective(og_charges, charges, self), 0.0)
         while step < self.steps:
@@ -332,10 +338,12 @@ def gradient(peturbed_charges, current_charges, sim):
     else:
         return binding_free_energy
 
+
 def constrain_net_charge(grad):
     val = np.sum(grad) / len(grad)
     grad = [x - val for x in grad]
     return np.array(grad)
+
 
 def net_charge_con(current_charge, net_charge):
     sum_ = net_charge
