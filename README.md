@@ -13,11 +13,11 @@ Optimise the atomistic charges of ligand to maximize receptor binding affinity.
 
     - Download from git
 
-    git clone https://github.com/adw62/Ligand_Charge_Optimiser/
+      git clone https://github.com/adw62/Ligand_Charge_Optimiser/
 
     - Install via pip
 
-    pip install path/to/directory
+      pip install path/to/directory
   
 # Options
 
