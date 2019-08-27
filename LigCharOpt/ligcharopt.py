@@ -75,15 +75,6 @@ class LigCharOpt(object):
                                   net_charge=self.net_charge, gaff=self.gaff_ver)
 
         logger.debug('Loading complex and solvent systems...')
-        tests = ['SSP_convergence_test', 'FEP_convergence_test', 'FS_test']
-
-        if opt == True:
-            if opt_name in tests:
-                run_dynamics = False
-            else:
-                run_dynamics = True
-        else:
-            run_dynamics = False
 
         #COMPLEX
         self.complex_sys = []
@@ -92,14 +83,7 @@ class LigCharOpt(object):
                                      opt=opt, exclude_dualtopo=exclude_dualtopo))
         self.complex_sys.append([complex_sim_dir + complex_name + '.dcd'])
         self.complex_sys.append(complex_sim_dir + complex_name + '.pdb')
-        if run_dynamics:
-            if not os.path.isfile(self.complex_sys[1][0]):
-                self.complex_sys[1] = [complex_sim_dir + complex_name + '_gpu' + str(x) + '.dcd' for x in range(num_gpu)]
-                for name in self.complex_sys[1]:
-                    if not os.path.isfile(name):
-                        self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(complex_sim_dir, complex_name,
-                                                                                        self.num_frames, equi, None)
-                        break
+
         #SOLVENT
         self.solvent_sys = []
         self.solvent_sys.append(FSim(ligand_name=ligand_name, sim_name=solvent_name, input_folder=input_folder,
@@ -107,14 +91,6 @@ class LigCharOpt(object):
                                      opt=opt, exclude_dualtopo=exclude_dualtopo))
         self.solvent_sys.append([solvent_sim_dir + solvent_name + '.dcd'])
         self.solvent_sys.append(solvent_sim_dir + solvent_name + '.pdb')
-        if run_dynamics:
-            if not os.path.isfile(self.solvent_sys[1][0]):
-                self.solvent_sys[1] = [solvent_sim_dir + solvent_name + '_gpu' + str(x) + '.dcd' for x in range(num_gpu)]
-                for name in self.solvent_sys[1]:
-                    if not os.path.isfile(name):
-                        self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(solvent_sim_dir, solvent_name,
-                                                                                        self.num_frames, equi, None)
-                        break
 
         if opt:
             Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, equi, opt_name, opt_steps,

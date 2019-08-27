@@ -39,6 +39,21 @@ class Optimize(object):
             self.wt_excep = Optimize.get_charge_product(self, charges)
         else:
             self.excep_scaling = Optimize.get_exception_scaling(self)
+
+        tests = ['FEP_convergence_test', 'SSP_convergence_test', 'FS_test']
+        if name in tests:
+            run_dynamics = False
+        else:
+            run_dynamics = True
+
+        if run_dynamics:
+            charges = np.array([x[0] for x in self.wt_nonbonded])
+            exceptions = Optimize.get_charge_product(self, charges)
+            com_mut_param, sol_mut_param = build_opt_params([charges], [exceptions], self)
+            self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex', self.num_frames,
+                                                                            self.equi, com_mut_param[0])
+            self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent', self.num_frames,
+                                                                            self.equi, sol_mut_param[0])
         Optimize.optimize(self, name)
 
     def read_charges(self, file):
@@ -101,6 +116,12 @@ class Optimize(object):
             charge_diff = [x-y for x,y in zip(original_charges, opt_charges)]
             Mol2.write_mol2(self.mol, './', 'opt_lig', charges=charge_diff)
 
+        if name == 'Newton':
+            opt_charges = Optimize.newton(self)
+            original_charges = [x[0] for x in self.wt_nonbonded]
+            charge_diff = [x-y for x,y in zip(original_charges, opt_charges)]
+            Mol2.write_mol2(self.mol, './', 'opt_lig', charges=charge_diff)
+
         elif name == 'FEP_only':
             #Get optimized charges from file to calc full FEP ddG
             file = open('charges_opt', 'r')
@@ -146,11 +167,11 @@ class Optimize(object):
                     logger.debug('ddG Fluorine Scanning for {} frames for replica {} = {}'.format(num_frames, replica, ddG))
 
         elif name == 'FEP_convergence_test':
-            sampling = range(4,410,20)
+            sampling = range(4, 424, 20)
             og_charges = [x[0] for x in self.wt_nonbonded]
             peturb_charges = copy.deepcopy(og_charges)
             peturb_charges[0] = peturb_charges[0] + 1.5e-04
-            windows = 3
+            windows = 4
             for num_frames in sampling:
                 for replica in range(self.num_fep):
                     logger.debug('Replica {}/{}'.format(replica+1, self.num_fep))
@@ -174,7 +195,7 @@ class Optimize(object):
                 ddg_error = (complex_error ** 2 + solvent_error ** 2) ** 0.5
                 logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
 
-            if name != 'FEP_only':
+            if name not in ['FEP_only', 'Newton']:
                 logger.debug('ddG SSP = {}'.format(ddg_fs))
 
     def build_perturbed_test_charges(self, perturbation):
@@ -206,20 +227,46 @@ class Optimize(object):
 
         return complex_dg, complex_error, solvent_dg, solvent_error
 
+    def newton(self):
+        og_charges = np.array([x[0] for x in self.wt_nonbonded])
+        charges = copy.deepcopy(og_charges)
+        logger.debug(charges)
+        for iteration in range(self.steps):
+            write_charges('charges_{}'.format(iteration), charges)
+            grad = np.array(gradient(charges, self))
+            logger.debug(grad)
+            hess = hessian(charges, grad, self)
+            i_hess = np.linalg.inv(hess)
+            logger.debug(i_hess)
+            delta = np.matmul(grad, i_hess)
+            constrained_delta = constrain_net_charge(delta)
+            logger.debug(constrained_delta)
+            charges = charges - constrained_delta
+            logger.debug(charges)
+            exceptions = Optimize.get_charge_product(self, charges)
+            com_mut_param, sol_mut_param = build_opt_params([charges], [exceptions], self)
+            # run new dynamics with updated charges
+            self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex',
+                                                                            self.num_frames, self.equi,
+                                                                            com_mut_param[0])
+            self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent',
+                                                                            self.num_frames, self.equi,
+                                                                            sol_mut_param[0])
+        return list(charges)
+
     def gradient_decent(self):
         og_charges = np.array([x[0] for x in self.wt_nonbonded])
         charges = copy.deepcopy(og_charges)
         ddg = 0.0
         scale = self.step_size
         step = 0
-        assert(objective(og_charges, charges, self), 0.0)
         while step < self.steps:
             write_charges('charges_{}'.format(step), charges)
             prev_charges = charges
-            grad = np.array(gradient(charges, prev_charges, self))
+            grad = np.array(gradient(charges, self))
             constrained_step = constrain_net_charge(grad)
             norm_const_step = constrained_step / np.linalg.norm(grad)
-            charges =- scale*norm_const_step
+            charges = charges - scale*norm_const_step
             forward_ddg = objective(charges, prev_charges, self)
             exceptions = Optimize.get_charge_product(self, charges)
             com_mut_param, sol_mut_param = build_opt_params([charges], [exceptions], self)
@@ -297,7 +344,7 @@ def objective(peturbed_charges, current_charges, sim):
     return binding_free_energy/unit.kilocalories_per_mole
 
 
-def gradient(peturbed_charges, current_charges, sim):
+def gradient(charges, sim, k=None):
     num_frames = int(sim.num_frames)
     dh = 1.5e-04
     if sim.central:
@@ -310,13 +357,16 @@ def gradient(peturbed_charges, current_charges, sim):
     for diff in h:
         binding_free_energy = []
         mutant_parameters = []
-        for i in range(len(peturbed_charges)):
-            mutant = copy.deepcopy(peturbed_charges)
+        for i in range(len(charges)):
+            if k is not None:
+                if i > k:
+                    break
+            mutant = copy.deepcopy(charges)
             mutant[i] = mutant[i] + diff
             mutant_parameters.append(mutant)
         mutant_exceptions = [Optimize.get_charge_product(sim, x) for x in mutant_parameters]
-        mutant_parameters.append(current_charges)
-        mutant_exceptions.append(Optimize.get_charge_product(sim, current_charges))
+        mutant_parameters.append(charges)
+        mutant_exceptions.append(Optimize.get_charge_product(sim, charges))
         com_mut_param, sol_mut_param = build_opt_params(mutant_parameters, mutant_exceptions, sim)
         complex_free_energy = FSim.treat_phase(sim.complex_sys[0], com_mut_param,
                                                sim.complex_sys[1], sim.complex_sys[2], num_frames)
@@ -339,10 +389,28 @@ def gradient(peturbed_charges, current_charges, sim):
         return binding_free_energy
 
 
-def constrain_net_charge(grad):
-    val = np.sum(grad) / len(grad)
-    grad = [x - val for x in grad]
-    return np.array(grad)
+def hessian(charges, grad, sim):
+    logger.debug('Computing Hessian with forward difference...')
+    hess_matrix = np.zeros((len(charges), len(charges)), dtype=np.float64)
+    dh = 1.5e-04
+    #Calculate upper triangle of hessian
+    for k in range(len(charges)):
+        mutant = copy.deepcopy(charges)
+        mutant[k] = mutant[k] + dh
+        tmp_grad = (gradient(mutant, sim, k) - grad[:k+1]) / dh
+        for l, grad_kl in enumerate(tmp_grad):
+            hess_matrix[k, l] = grad_kl
+    #Make hessian symmetric
+    for i in range(len(hess_matrix)):
+        for j in range(i, len(hess_matrix)):
+            hess_matrix[i][j] = hess_matrix[j][i]
+    return hess_matrix
+
+
+def constrain_net_charge(delta):
+    val = np.sum(delta) / len(delta)
+    delta = [x - val for x in delta]
+    return np.array(delta)
 
 
 def net_charge_con(current_charge, net_charge):
