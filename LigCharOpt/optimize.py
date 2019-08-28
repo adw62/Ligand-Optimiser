@@ -4,10 +4,12 @@
 from Fluorify.energy import *
 from Fluorify.mol2 import *
 from simtk import unit
+from scipy.optimize import newton
 import copy
 import logging
 import numpy as np
 import math
+
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +19,7 @@ ee = e*e
 
 class Optimize(object):
     def __init__(self, wt_ligand, complex_sys, solvent_sys, output_folder, num_frames, equi, name, steps,
-                 charge_only, central_diff, num_fep, step_size, mol, restart):
+                 charge_only, central_diff, num_fep, step_size, mol, restart, scipy_bool):
 
         self.complex_sys = complex_sys
         self.solvent_sys = solvent_sys
@@ -54,7 +56,7 @@ class Optimize(object):
                                                                             self.equi, com_mut_param[0])
             self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent', self.num_frames,
                                                                             self.equi, sol_mut_param[0])
-        Optimize.optimize(self, name)
+        Optimize.optimize(self, name, scipy_bool)
 
     def read_charges(self, file):
         charges = []
@@ -106,20 +108,32 @@ class Optimize(object):
                         charge_prod['data'] = charge_prod['data']*charge
         return new_charge_product
 
-    def optimize(self, name):
+    def optimize(self, name, scipy_bool):
         """optimising ligand charges
         """
 
-        if name == 'gradient_decent':
-            opt_charges, ddg_fs = Optimize.gradient_decent(self)
+        if scipy_bool:
+            opt_charges = Optimize.scipy(self, name)
+            original_charges = [x[0] for x in self.wt_nonbonded]
+            charge_diff = [x - y for x, y in zip(original_charges, opt_charges)]
+            Mol2.write_mol2(self.mol, './', 'opt_lig', charges=charge_diff)
+
+        elif name == 'gradient_decent':
+            opt_charges = Optimize.gradient_decent(self)
             original_charges = [x[0] for x in self.wt_nonbonded]
             charge_diff = [x-y for x,y in zip(original_charges, opt_charges)]
             Mol2.write_mol2(self.mol, './', 'opt_lig', charges=charge_diff)
 
-        if name == 'Newton':
+        elif name == 'Newton':
             opt_charges = Optimize.newton(self)
             original_charges = [x[0] for x in self.wt_nonbonded]
             charge_diff = [x-y for x,y in zip(original_charges, opt_charges)]
+            Mol2.write_mol2(self.mol, './', 'opt_lig', charges=charge_diff)
+
+        elif name == 'Gauss-Newton':
+            opt_charges = Optimize.newton(self, gauss=True)
+            original_charges = [x[0] for x in self.wt_nonbonded]
+            charge_diff = [x - y for x, y in zip(original_charges, opt_charges)]
             Mol2.write_mol2(self.mol, './', 'opt_lig', charges=charge_diff)
 
         elif name == 'FEP_only':
@@ -195,8 +209,8 @@ class Optimize(object):
                 ddg_error = (complex_error ** 2 + solvent_error ** 2) ** 0.5
                 logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
 
-            if name not in ['FEP_only', 'Newton']:
-                logger.debug('ddG SSP = {}'.format(ddg_fs))
+            #if name not in ['FEP_only', 'Newton', 'Gauss-Newton']:
+            #    logger.debug('ddG SSP = {}'.format(ddg_fs))
 
     def build_perturbed_test_charges(self, perturbation):
         og_charges = [x[0] for x in self.wt_nonbonded]
@@ -227,7 +241,10 @@ class Optimize(object):
 
         return complex_dg, complex_error, solvent_dg, solvent_error
 
-    def newton(self):
+    def scipy(self, name):
+            raise NotImplementedError('No scipy opts')
+
+    def newton(self, gauss = False):
         og_charges = np.array([x[0] for x in self.wt_nonbonded])
         charges = copy.deepcopy(og_charges)
         logger.debug(charges)
@@ -235,13 +252,17 @@ class Optimize(object):
             write_charges('charges_{}'.format(iteration), charges)
             grad = np.array(gradient(charges, self))
             logger.debug(grad)
-            hess = hessian(charges, grad, self)
+            if not gauss:
+                hess = hessian(charges, grad, self)
+            else:
+                hess = np.outer(grad, grad)
             i_hess = np.linalg.inv(hess)
             logger.debug(i_hess)
             delta = np.matmul(grad, i_hess)
             constrained_delta = constrain_net_charge(delta)
             logger.debug(constrained_delta)
-            charges = charges - constrained_delta
+            norm_const_delta = constrained_delta / np.linalg.norm(constrained_delta)
+            charges = charges - norm_const_delta*self.step_size
             logger.debug(charges)
             exceptions = Optimize.get_charge_product(self, charges)
             com_mut_param, sol_mut_param = build_opt_params([charges], [exceptions], self)
@@ -252,22 +273,23 @@ class Optimize(object):
             self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent',
                                                                             self.num_frames, self.equi,
                                                                             sol_mut_param[0])
+            write_charges('charges_opt', charges)
         return list(charges)
 
     def gradient_decent(self):
         og_charges = np.array([x[0] for x in self.wt_nonbonded])
         charges = copy.deepcopy(og_charges)
-        ddg = 0.0
         scale = self.step_size
         step = 0
+        logger.debug(charges)
         while step < self.steps:
             write_charges('charges_{}'.format(step), charges)
-            prev_charges = charges
             grad = np.array(gradient(charges, self))
             constrained_step = constrain_net_charge(grad)
-            norm_const_step = constrained_step / np.linalg.norm(grad)
+            norm_const_step = constrained_step / np.linalg.norm(constrained_step)
             charges = charges - scale*norm_const_step
-            forward_ddg = objective(charges, prev_charges, self)
+            logger.debug(norm_const_step)
+            logger.debug(charges)
             exceptions = Optimize.get_charge_product(self, charges)
             com_mut_param, sol_mut_param = build_opt_params([charges], [exceptions], self)
 
@@ -278,15 +300,10 @@ class Optimize(object):
             self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent',
                                                                             self.num_frames, self.equi,
                                                                             sol_mut_param[0])
-            logger.debug('Computing reverse leg of accepted step...')
-            reverse_ddg = -1 * objective(prev_charges, charges, self)
-            logger.debug('Forward {} and reverse {} steps'.format(forward_ddg, reverse_ddg))
-            ddg += (forward_ddg + reverse_ddg) / 2.0
-            logger.debug(
-                "Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step + 1, self.steps))
+
             write_charges('charges_opt', charges)
             step += 1
-        return list(charges), ddg
+        return list(charges)
 
     def build_fep_params(self, params, windows):
         #build interpolated params
@@ -388,7 +405,6 @@ def gradient(charges, sim, k=None):
     else:
         return binding_free_energy
 
-
 def hessian(charges, grad, sim):
     logger.debug('Computing Hessian with forward difference...')
     hess_matrix = np.zeros((len(charges), len(charges)), dtype=np.float64)
@@ -401,9 +417,7 @@ def hessian(charges, grad, sim):
         for l, grad_kl in enumerate(tmp_grad):
             hess_matrix[k, l] = grad_kl
     #Make hessian symmetric
-    for i in range(len(hess_matrix)):
-        for j in range(i, len(hess_matrix)):
-            hess_matrix[i][j] = hess_matrix[j][i]
+    hess_matrix = hess_matrix + hess_matrix.transpose()
     return hess_matrix
 
 
@@ -411,13 +425,6 @@ def constrain_net_charge(delta):
     val = np.sum(delta) / len(delta)
     delta = [x - val for x in delta]
     return np.array(delta)
-
-
-def net_charge_con(current_charge, net_charge):
-    sum_ = net_charge
-    for charge in current_charge:
-        sum_ = sum_ - charge
-    return sum_
 
 
 def write_charges(name, charges):
