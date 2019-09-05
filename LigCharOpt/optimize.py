@@ -288,14 +288,13 @@ class Optimize(object):
         charges = copy.deepcopy(og_charges)
         step = 0
         while step < self.steps:
-            scale = self.step_size
             write_charges('charges_{}'.format(step), charges)
             grad = gradient(charges, self)
             write_charges('gradient_{}'.format(step), grad)
             grad = np.array(grad)
             constrained_step = constrain_net_charge(grad)
             norm_const_step = constrained_step / np.linalg.norm(constrained_step)
-            charges_plus_one = charges - scale*norm_const_step
+            charges_plus_one = charges - self.step_size*norm_const_step
             exceptions = Optimize.get_charge_product(self, charges_plus_one)
             com_mut_param, sol_mut_param = build_opt_params([charges_plus_one], [exceptions], self)
             # run new dynamics with updated charges
@@ -303,7 +302,7 @@ class Optimize(object):
             attempt = 1
             while incomplete:
                 try:
-                    logger.debug('Current step size {}'.format(scale))
+                    logger.debug('Current step size {}'.format(self.step_size))
                     Optimize.run_dynamics(self, com_mut_param, sol_mut_param)
                     if attempt == 1:
                         self.step_size += self.step_size*0.2
@@ -312,8 +311,8 @@ class Optimize(object):
                     sys.exit()
                 except:
                     logger.debug('Caught NaN for step {} attempt {}'.format(step, attempt))
-                    scale -= 0.1*self.step_size
-                    charges_plus_one = charges - scale*norm_const_step
+                    self.step_size -= 0.1*self.step_size
+                    charges_plus_one = charges - self.step_size*norm_const_step
                     exceptions = Optimize.get_charge_product(self, charges_plus_one)
                     com_mut_param, sol_mut_param = build_opt_params([charges_plus_one], [exceptions], self)
                     attempt += 1
