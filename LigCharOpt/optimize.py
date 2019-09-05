@@ -119,7 +119,7 @@ class Optimize(object):
             Mol2.write_mol2(self.mol, './', 'opt_lig', charges=charge_diff)
 
         elif name == 'gradient_decent':
-            opt_charges = Optimize.gradient_decent(self)
+            opt_charges, ddg_fs = Optimize.gradient_decent(self)
             original_charges = [x[0] for x in self.wt_nonbonded]
             charge_diff = [x-y for x,y in zip(original_charges, opt_charges)]
             Mol2.write_mol2(self.mol, './', 'opt_lig', charges=charge_diff)
@@ -209,8 +209,8 @@ class Optimize(object):
                 ddg_error = (complex_error ** 2 + solvent_error ** 2) ** 0.5
                 logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
 
-            #if name not in ['FEP_only', 'Newton', 'Gauss-Newton']:
-            #    logger.debug('ddG SSP = {}'.format(ddg_fs))
+            if name not in ['FEP_only', 'Newton', 'Gauss-Newton']:
+                logger.debug('ddG SSP = {}'.format(ddg_fs))
 
     def build_perturbed_test_charges(self, perturbation):
         og_charges = [x[0] for x in self.wt_nonbonded]
@@ -281,15 +281,20 @@ class Optimize(object):
         charges = copy.deepcopy(og_charges)
         scale = self.step_size
         step = 0
+        ddg = 0.0
         logger.debug(charges)
         while step < self.steps:
             write_charges('charges_{}'.format(step), charges)
-            grad = np.array(gradient(charges, self))
+            prev_charges = charges
+            grad = gradient(charges, self)
+            write_charges('gradient_{}'.format(step), grad)
+            grad = np.array(grad)
             constrained_step = constrain_net_charge(grad)
             norm_const_step = constrained_step / np.linalg.norm(constrained_step)
             charges = charges - scale*norm_const_step
             logger.debug(norm_const_step)
             logger.debug(charges)
+            forward_ddg = objective(charges, prev_charges, self)
             exceptions = Optimize.get_charge_product(self, charges)
             com_mut_param, sol_mut_param = build_opt_params([charges], [exceptions], self)
 
@@ -300,10 +305,14 @@ class Optimize(object):
             self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent',
                                                                             self.num_frames, self.equi,
                                                                             sol_mut_param[0])
-
+            logger.debug('Computing reverse leg of accepted step...')
+            reverse_ddg = -1.0 * objective(prev_charges, charges, self)
+            logger.debug('Forward {} and reverse {} steps'.format(forward_ddg, reverse_ddg))
+            ddg += (forward_ddg + reverse_ddg) / 2.0
+            logger.debug("Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step + 1, self.steps))
             write_charges('charges_opt', charges)
             step += 1
-        return list(charges)
+        return list(charges), ddg
 
     def build_fep_params(self, params, windows):
         #build interpolated params
@@ -363,7 +372,7 @@ def objective(peturbed_charges, current_charges, sim):
 
 def gradient(charges, sim, k=None):
     num_frames = int(sim.num_frames)
-    dh = 1.5e-04
+    dh = 1.0e-05
     if sim.central:
         h = [0.5*dh, -0.5*dh]
         logger.debug('Computing Jacobian with central difference...')
