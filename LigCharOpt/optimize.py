@@ -223,8 +223,9 @@ class Optimize(object):
             raise ValueError('Net charge change')
         return peturb_charges
 
-    def run_fep(self, opt_charges, steps, windows=12):
-        original_charges = [x[0] for x in self.wt_nonbonded]
+    def run_fep(self, opt_charges, steps, n_iterations=50, windows=12, original_charges=None):
+        if original_charges is None:
+            original_charges = [x[0] for x in self.wt_nonbonded]
         opt_exceptions = Optimize.get_charge_product(self, opt_charges)
         logger.debug('Original charges: {}'.format(original_charges))
         logger.debug('Optimized charges: {}'.format(opt_charges))
@@ -233,10 +234,10 @@ class Optimize(object):
         com_mut_param, sol_mut_param = build_opt_params(mut_charges, mut_exceptions, self)
         com_fep_params = Optimize.build_fep_params(self, com_mut_param, windows)
         sol_fep_params = Optimize.build_fep_params(self, sol_mut_param, windows)
-        complex_dg, complex_error = self.complex_sys[0].run_parallel_fep(com_fep_params,
-                                                                         None, None, steps, 50, None)
-        solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(sol_fep_params,
-                                                                         None, None, steps, 50, None)
+        complex_dg, complex_error = self.complex_sys[0].run_parallel_fep(com_fep_params, None, None,
+                                                                         steps, n_iterations, None, True)
+        solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(sol_fep_params, None, None,
+                                                                         steps, n_iterations, None, True)
 
         return complex_dg, complex_error, solvent_dg, solvent_error
 
@@ -283,6 +284,22 @@ class Optimize(object):
                                                                         self.num_frames, self.equi,
                                                                         sol_mut_param[0])
 
+    def line_search(self, charges, charges_plus_one):
+        windows = 12
+        complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, charges_plus_one,
+                                                                                2500, original_charges=charges)
+        ddg_fep = complex_dg - solvent_dg
+        line = ddg_fep[0]
+        best_window = list(line).index(min(line))
+        logger.debug('Line search found best window {} from line {}'.format(best_window, line))
+        if best_window == 0:
+            self.step_size = self.step_size/2
+            raise Exception('Line search failed reducing step size by factor of two')
+        #Get charges corresponding to best window
+        charges_plus_one = [a+((b-a)/(windows-1))*(best_window) for a, b in zip(charges, charges_plus_one)]
+        return charges_plus_one
+
+
     def gradient_decent(self):
         og_charges = np.array([x[0] for x in self.wt_nonbonded])
         charges = copy.deepcopy(og_charges)
@@ -295,14 +312,16 @@ class Optimize(object):
             constrained_step = constrain_net_charge(grad)
             norm_const_step = constrained_step / np.linalg.norm(constrained_step)
             charges_plus_one = charges - self.step_size*norm_const_step
-            exceptions = Optimize.get_charge_product(self, charges_plus_one)
-            com_mut_param, sol_mut_param = build_opt_params([charges_plus_one], [exceptions], self)
             # run new dynamics with updated charges
             incomplete = True
             attempt = 1
             while incomplete:
                 try:
                     logger.debug('Current step size {}'.format(self.step_size))
+                    #run line search
+                    charges_plus_one = Optimize.line_search(self, charges, charges_plus_one)
+                    exceptions = Optimize.get_charge_product(self, charges_plus_one)
+                    com_mut_param, sol_mut_param = build_opt_params([charges_plus_one], [exceptions], self)
                     Optimize.run_dynamics(self, com_mut_param, sol_mut_param)
                     if attempt == 1:
                         self.step_size += self.step_size*0.2
@@ -310,11 +329,9 @@ class Optimize(object):
                 except (KeyboardInterrupt):
                     sys.exit()
                 except:
-                    logger.debug('Caught NaN for step {} attempt {}'.format(step, attempt))
-                    self.step_size -= 0.1*self.step_size
+                    logger.debug('Caught failed line search for step {} attempt {}'.format(step, attempt))
+                    self.step_size -= 0.2*self.step_size
                     charges_plus_one = charges - self.step_size*norm_const_step
-                    exceptions = Optimize.get_charge_product(self, charges_plus_one)
-                    com_mut_param, sol_mut_param = build_opt_params([charges_plus_one], [exceptions], self)
                     attempt += 1
             charges = charges_plus_one
             write_charges('charges_opt', charges)
@@ -340,7 +357,7 @@ class Optimize(object):
                     for k, (param1, param2) in enumerate(zip(force1, mutant)):
                         interpolated_params[i][j][k] = copy.deepcopy(param1)
                         interpolated_params[i][j][k]['data'] = param2[0]
-
+        
         mutant_systems = [[x, None, y, None] for x, y in zip(interpolated_params[0], interpolated_params[2])]
         return mutant_systems
 
@@ -435,6 +452,7 @@ def hessian(charges, grad, sim):
     #Make hessian symmetric
     hess_matrix = hess_matrix + hess_matrix.transpose()
     return hess_matrix
+
 
 def constrain_net_charge(delta):
     val = np.sum(delta) / len(delta)
