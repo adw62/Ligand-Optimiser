@@ -294,7 +294,9 @@ class Optimize(object):
         logger.debug('Line search found best window {} from line {}'.format(best_window, line))
         if best_window == 0:
             self.step_size = self.step_size/2
-            raise Exception('Line search failed reducing step size by factor of two')
+            logger.debug('Line search failed reducing step size by factor of two')
+            raise Exception()
+
         #Get charges corresponding to best window
         charges_plus_one = [a+((b-a)/(windows-1))*(best_window) for a, b in zip(charges, charges_plus_one)]
         return charges_plus_one
