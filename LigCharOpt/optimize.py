@@ -118,7 +118,8 @@ class Optimize(object):
             Mol2.write_mol2(self.mol, './', 'opt_lig', charges=charge_diff)
 
         elif name == 'gradient_decent':
-            opt_charges = Optimize.gradient_decent(self)
+            opt_charges, ddg_fep = Optimize.gradient_decent(self)
+            logger.debug('Total ddG = {}'.format(ddg_fep))
             original_charges = [x[0] for x in self.wt_nonbonded]
             charge_diff = [x-y for x,y in zip(original_charges, opt_charges)]
             Mol2.write_mol2(self.mol, './', 'opt_lig', charges=charge_diff)
@@ -287,7 +288,7 @@ class Optimize(object):
     def line_search(self, charges, charges_plus_one):
         windows = 12
         complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, charges_plus_one,
-                                                                                2500, original_charges=charges)
+                                                                                1, original_charges=charges)
         ddg_fep = complex_dg - solvent_dg
         line = ddg_fep[0]
         best_window = list(line).index(min(line))
@@ -299,13 +300,14 @@ class Optimize(object):
 
         #Get charges corresponding to best window
         charges_plus_one = [a+((b-a)/(windows-1))*(best_window) for a, b in zip(charges, charges_plus_one)]
-        return charges_plus_one
+        return charges_plus_one, line[best_window]
 
 
     def gradient_decent(self):
         og_charges = np.array([x[0] for x in self.wt_nonbonded])
         charges = copy.deepcopy(og_charges)
         step = 0
+        total_ddg = 0.0
         while step < self.steps:
             write_charges('charges_{}'.format(step), charges)
             grad = gradient(charges, self)
@@ -321,12 +323,13 @@ class Optimize(object):
                 try:
                     logger.debug('Current step size {}'.format(self.step_size))
                     #run line search
-                    charges_plus_one = Optimize.line_search(self, charges, charges_plus_one)
+                    charges_plus_one, ddg = Optimize.line_search(self, charges, charges_plus_one)
                     exceptions = Optimize.get_charge_product(self, charges_plus_one)
                     com_mut_param, sol_mut_param = build_opt_params([charges_plus_one], [exceptions], self)
                     Optimize.run_dynamics(self, com_mut_param, sol_mut_param)
                     if attempt == 1:
                         self.step_size += self.step_size*0.2
+                    total_ddg += ddg
                     incomplete = False
                 except (KeyboardInterrupt):
                     sys.exit()
@@ -338,7 +341,7 @@ class Optimize(object):
             charges = charges_plus_one
             write_charges('charges_opt', charges)
             step += 1
-        return list(charges)
+        return list(charges), total_ddg
 
     def build_fep_params(self, params, windows):
         #build interpolated params
