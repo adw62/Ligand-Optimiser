@@ -30,6 +30,7 @@ class Optimize(object):
         self.central = central_diff
         self.num_fep = num_fep
         self.step_size = step_size
+        self.max_step_size = step_size
         self.mol = mol
         self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep,\
         self.net_charge = Optimize.build_params(self, wt_ligand)
@@ -228,8 +229,8 @@ class Optimize(object):
         if original_charges is None:
             original_charges = [x[0] for x in self.wt_nonbonded]
         opt_exceptions = Optimize.get_charge_product(self, opt_charges)
-        logger.debug('Original charges: {}'.format(original_charges))
-        logger.debug('Optimized charges: {}'.format(opt_charges))
+        logger.debug('0th state charges: {}'.format(original_charges))
+        logger.debug('Final state charges: {}'.format(opt_charges))
         mut_charges = [opt_charges, original_charges]
         mut_exceptions = [opt_exceptions, self.wt_excep]
         com_mut_param, sol_mut_param = build_opt_params(mut_charges, mut_exceptions, self)
@@ -294,14 +295,19 @@ class Optimize(object):
         best_window = list(line).index(min(line))
         logger.debug('Line search found best window {} from line {}'.format(best_window, line))
         if best_window == 0:
-            self.step_size = self.step_size/2
-            logger.debug('Line search failed reducing step size by factor of two')
+            logger.debug('Line search failed')
             raise Exception()
+        #Here we are aiming to keep the best window in the middle of all windows
+        elif best_window > windows/2:
+            logger.debug('Best window in top half of windows increasing step size')
+            self.step_size = min(self.step_size*1.2, self.max_step_size)
+        elif best_window < windows/2:
+            logger.debug('Best window in bottom half of windows decreasing step size')
+            self.step_size = 0.8 * self.step_size
 
         #Get charges corresponding to best window
         charges_plus_one = [a+((b-a)/(windows-1))*(best_window) for a, b in zip(charges, charges_plus_one)]
         return charges_plus_one, line[best_window]
-
 
     def gradient_decent(self):
         og_charges = np.array([x[0] for x in self.wt_nonbonded])
@@ -327,15 +333,13 @@ class Optimize(object):
                     exceptions = Optimize.get_charge_product(self, charges_plus_one)
                     com_mut_param, sol_mut_param = build_opt_params([charges_plus_one], [exceptions], self)
                     Optimize.run_dynamics(self, com_mut_param, sol_mut_param)
-                    if attempt == 1:
-                        self.step_size += self.step_size*0.2
                     total_ddg += ddg
                     incomplete = False
                 except (KeyboardInterrupt):
                     sys.exit()
                 except:
                     logger.debug('Caught failed line search for step {} attempt {}'.format(step, attempt))
-                    self.step_size -= 0.2*self.step_size
+                    self.step_size = 0.5*self.step_size
                     charges_plus_one = charges - self.step_size*norm_const_step
                     attempt += 1
             charges = charges_plus_one
