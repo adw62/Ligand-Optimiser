@@ -288,7 +288,7 @@ class Optimize(object):
     def line_search(self, charges, charges_plus_one):
         windows = 12
         complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, charges_plus_one,
-                                                                                1, original_charges=charges)
+                                                                                2500, original_charges=charges)
         ddg_fep = complex_dg - solvent_dg
         line = ddg_fep[0]
         best_window = list(line).index(min(line))
