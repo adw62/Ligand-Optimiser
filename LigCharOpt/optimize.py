@@ -31,7 +31,6 @@ class Optimize(object):
         self.central = central_diff
         self.num_fep = num_fep
         self.step_size = step_size
-        self.max_step_size = step_size
         self.mol = mol
         self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep,\
         self.net_charge = Optimize.build_params(self, wt_ligand)
@@ -288,24 +287,17 @@ class Optimize(object):
                                                                         sol_mut_param[0])
 
     def line_search(self, charges, charges_plus_one):
-        windows = 12
+        windows = 24
         complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, charges_plus_one,
-                                                                                2500, original_charges=charges)
+                                                                                2500, n_iterations=35,
+                                                                                windows=windows, original_charges=charges)
         ddg_fep = complex_dg - solvent_dg
         line = ddg_fep[0]
         best_window = list(line).index(min(line))
         logger.debug('Line search found best window {} from line {}'.format(best_window, line))
         if best_window == 0:
             logger.debug('Line search failed')
-            raise Exception()
-        #Here we are aiming to keep the best window in the middle of all windows
-        elif best_window > windows/2:
-            logger.debug('Best window in top half of windows increasing step size')
-            self.step_size = min(self.step_size*1.2, self.max_step_size)
-        elif best_window < windows/2:
-            logger.debug('Best window in bottom half of windows decreasing step size')
-            self.step_size = 0.8 * self.step_size
-
+            raise ValueError()
         #Get charges corresponding to best window
         charges_plus_one = [a+((b-a)/(windows-1))*(best_window) for a, b in zip(charges, charges_plus_one)]
         return charges_plus_one, line[best_window]
@@ -324,9 +316,9 @@ class Optimize(object):
             norm_const_step = constrained_step / np.linalg.norm(constrained_step)
             charges_plus_one = charges - self.step_size*norm_const_step
             # run new dynamics with updated charges
-            incomplete = True
+            complete = False
             attempt = 1
-            while incomplete:
+            while not complete:
                 try:
                     logger.debug('Current step size {}'.format(self.step_size))
                     #run line search
@@ -335,12 +327,16 @@ class Optimize(object):
                     com_mut_param, sol_mut_param = build_opt_params([charges_plus_one], [exceptions], self)
                     Optimize.run_dynamics(self, com_mut_param, sol_mut_param)
                     total_ddg += ddg
-                    incomplete = False
+                    complete = True
                 except (KeyboardInterrupt):
                     sys.exit()
+                except (ValueError):
+                    logger.debug('Caught failed line search for step {}'.format(step, attempt))
+                    step = self.steps
+                    complete = True
                 except:
-                    logger.debug('Caught failed line search for step {} attempt {}'.format(step, attempt))
-                    self.step_size = 0.5*self.step_size
+                    logger.debug('Caught NaN for step {} attempt {}'.format(step, attempt))
+                    self.step_size = 0.8*self.step_size
                     charges_plus_one = charges - self.step_size*norm_const_step
                     attempt += 1
             charges = charges_plus_one
@@ -473,7 +469,10 @@ def constrain_net_charge(delta):
 def write_charges(name, charges):
     file = open(name, 'w')
     for q in charges:
-        file.write('{}\n'.format(q))
+        if q == charges[-1]:
+            file.write('{}\n'.format(q))
+        else:
+            file.write('{},\n'.format(q))
     file.close()
 
 
