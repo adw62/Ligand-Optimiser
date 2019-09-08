@@ -287,9 +287,9 @@ class Optimize(object):
                                                                         sol_mut_param[0])
 
     def line_search(self, charges, charges_plus_one):
-        windows = 24
+        windows = 30
         complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, charges_plus_one,
-                                                                                2500, n_iterations=35,
+                                                                                2500, n_iterations=25,
                                                                                 windows=windows, original_charges=charges)
         ddg_fep = complex_dg - solvent_dg
         line = ddg_fep[0]
