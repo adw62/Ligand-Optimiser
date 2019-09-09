@@ -287,9 +287,9 @@ class Optimize(object):
                                                                         sol_mut_param[0])
 
     def line_search(self, charges, charges_plus_one):
-        windows = 30
+        windows = 24
         complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, charges_plus_one,
-                                                                                2500, n_iterations=25,
+                                                                                2500, n_iterations=35,
                                                                                 windows=windows, original_charges=charges)
         ddg_fep = complex_dg - solvent_dg
         line = ddg_fep[0]
@@ -468,8 +468,8 @@ def constrain_net_charge(delta):
 
 def write_charges(name, charges):
     file = open(name, 'w')
-    for q in charges:
-        if q == charges[-1]:
+    for i, q in enumerate(charges):
+        if i == len(charges):
             file.write('{}\n'.format(q))
         else:
             file.write('{},\n'.format(q))
