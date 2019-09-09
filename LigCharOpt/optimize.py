@@ -287,17 +287,17 @@ class Optimize(object):
                                                                         sol_mut_param[0])
 
     def line_search(self, charges, charges_plus_one):
-        windows = 24
+        windows = 40
         complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, charges_plus_one,
-                                                                                2500, n_iterations=35,
+                                                                                2500, n_iterations=20,
                                                                                 windows=windows, original_charges=charges)
         ddg_fep = complex_dg - solvent_dg
         line = ddg_fep[0]
         best_window = list(line).index(min(line))
         logger.debug('Line search found best window {} from line {}'.format(best_window, line))
         if best_window == 0:
-            logger.debug('Line search failed')
-            raise ValueError()
+            logger.debug('Line search failed, taking small step up hill')
+            best_window = 1
         #Get charges corresponding to best window
         charges_plus_one = [a+((b-a)/(windows-1))*(best_window) for a, b in zip(charges, charges_plus_one)]
         return charges_plus_one, line[best_window]
@@ -330,10 +330,6 @@ class Optimize(object):
                     complete = True
                 except (KeyboardInterrupt):
                     sys.exit()
-                except (ValueError):
-                    logger.debug('Caught failed line search for step {}'.format(step, attempt))
-                    step = self.steps
-                    complete = True
                 except:
                     logger.debug('Caught NaN for step {} attempt {}'.format(step, attempt))
                     self.step_size = 0.8*self.step_size
