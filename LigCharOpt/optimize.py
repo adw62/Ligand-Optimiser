@@ -19,7 +19,7 @@ ee = e*e
 
 class Optimize(object):
     def __init__(self, wt_ligand, complex_sys, solvent_sys, output_folder, num_frames, equi, name, steps,
-                 charge_only, central_diff, num_fep, step_size, mol, restart, scipy_bool):
+                 charge_only, central_diff, num_fep, step_size, mol, restart):
 
         self.complex_sys = complex_sys
         self.solvent_sys = solvent_sys
@@ -56,20 +56,20 @@ class Optimize(object):
                                                                             self.equi, com_mut_param[0])
             self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent', self.num_frames,
                                                                             self.equi, sol_mut_param[0])
-        Optimize.optimize(self, name, scipy_bool)
+        Optimize.optimize(self, name)
 
     def read_charges(self, file):
         charges = []
         f = open(file, 'r')
         for line in f:
             q = line.strip('\n')
+            q = q.strip(',')
             charges.append([float(q)])
         f.close()
         return charges
 
     def build_params(self, wt_ligand):
         if self.charge_only == False:
-            #TODO add VDW
             raise ValueError('Can only optimize charge')
         else:
             #get all wt params
@@ -108,17 +108,11 @@ class Optimize(object):
                         charge_prod['data'] = charge_prod['data']*charge
         return new_charge_product
 
-    def optimize(self, name, scipy_bool):
+    def optimize(self, name):
         """optimising ligand charges
         """
 
-        if scipy_bool:
-            opt_charges = Optimize.scipy(self, name)
-            original_charges = [x[0] for x in self.wt_nonbonded]
-            charge_diff = [x - y for x, y in zip(original_charges, opt_charges)]
-            Mol2.write_mol2(self.mol, './', 'opt_lig', charges=charge_diff)
-
-        elif name == 'gradient_decent':
+        if name == 'gradient_decent':
             opt_charges, ddg_fep = Optimize.gradient_decent(self)
             logger.debug('Total ddG = {}'.format(ddg_fep))
             original_charges = [x[0] for x in self.wt_nonbonded]
@@ -205,13 +199,11 @@ class Optimize(object):
         if name not in tests:
             for replica in range(self.num_fep):
                 logger.debug('Replica {}/{}'.format(replica+1, self.num_fep))
-                complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, opt_charges, 20000)
+                complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, opt_charges, 20000, return_matrix=False)
                 ddg_fep = complex_dg - solvent_dg
                 ddg_error = (complex_error ** 2 + solvent_error ** 2) ** 0.5
                 logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
 
-            #if name not in ['FEP_only', 'Newton', 'Gauss-Newton']:
-            #    logger.debug('ddG SSP = {}'.format(ddg_fs))
 
     def build_perturbed_test_charges(self, perturbation):
         og_charges = [x[0] for x in self.wt_nonbonded]
@@ -225,7 +217,7 @@ class Optimize(object):
             raise ValueError('Net charge change')
         return peturb_charges
 
-    def run_fep(self, opt_charges, steps, n_iterations=50, windows=12, original_charges=None):
+    def run_fep(self, opt_charges, steps, n_iterations=50, windows=12, original_charges=None, return_matrix=True):
         if original_charges is None:
             original_charges = [x[0] for x in self.wt_nonbonded]
         opt_exceptions = Optimize.get_charge_product(self, opt_charges)
@@ -237,16 +229,14 @@ class Optimize(object):
         com_fep_params = Optimize.build_fep_params(self, com_mut_param, windows)
         sol_fep_params = Optimize.build_fep_params(self, sol_mut_param, windows)
         complex_dg, complex_error = self.complex_sys[0].run_parallel_fep(com_fep_params, None, None,
-                                                                         steps, n_iterations, None, True)
+                                                                         steps, n_iterations, None, return_matrix)
         solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(sol_fep_params, None, None,
-                                                                         steps, n_iterations, None, True)
+                                                                         steps, n_iterations, None, return_matrix)
 
         return complex_dg, complex_error, solvent_dg, solvent_error
 
-    def scipy(self, name):
-            raise NotImplementedError('No scipy opts')
-
     def newton(self, gauss = False):
+        logger.debug('Warning: Newton is untested')
         og_charges = np.array([x[0] for x in self.wt_nonbonded])
         charges = copy.deepcopy(og_charges)
         logger.debug(charges)
@@ -294,7 +284,7 @@ class Optimize(object):
         ddg_fep = complex_dg - solvent_dg
         line = ddg_fep[0]
         best_window = list(line).index(min(line))
-        logger.debug('Line search found best window {} from line {}'.format(best_window, line))
+        logger.debug('Line search found best window {} with value'.format(best_window, line[best_window]))
         if best_window == 0:
             logger.debug('Line search failed, taking small step up hill')
             best_window = 1
