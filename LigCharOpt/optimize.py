@@ -34,6 +34,7 @@ class Optimize(object):
         self.mol = mol
         self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep,\
         self.net_charge = Optimize.build_params(self, wt_ligand)
+        self.true_orginal_charges = copy.deepcopy(self.wt_nonbonded)
         if restart[0]:
             self.excep_scaling = Optimize.get_exception_scaling(self)
             self.wt_nonbonded = Optimize.read_charges(self, restart[1])
@@ -59,6 +60,7 @@ class Optimize(object):
         Optimize.optimize(self, name)
 
     def read_charges(self, file):
+        logger.debug('Reading charges from {}'.format(file))
         charges = []
         f = open(file, 'r')
         for line in f:
@@ -275,6 +277,18 @@ class Optimize(object):
         self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent',
                                                                         self.num_frames, self.equi,
                                                                         sol_mut_param[0])
+    def get_bounds(self, grad, charges, bound=0.5):
+        logger.debug('Applying bounds')
+        for i, (x, y, z) in enumerate(zip(charges, self.true_orginal_charges, grad)):
+            diff = x-y
+            if abs(diff) > bound:
+                if diff < -bound and z < 0:
+                    logger.debug('Bounding charge {} change to {}'.format(i, -bound))
+                    grad[i] = 0
+                if diff > bound and z > 0:
+                    logger.debug('Bounding charge {} change to {}'.format(i, bound))
+                    grad[i] = 0
+        return grad
 
     def line_search(self, charges, charges_plus_one):
         windows = 40
@@ -292,7 +306,7 @@ class Optimize(object):
         charges_plus_one = [a+((b-a)/(windows-1))*(best_window) for a, b in zip(charges, charges_plus_one)]
         return charges_plus_one, line[best_window]
 
-    def gradient_decent(self, charges_to_kill=32):
+    def gradient_decent(self):
         og_charges = np.array([x[0] for x in self.wt_nonbonded])
         charges = copy.deepcopy(og_charges)
         step = 0
@@ -301,8 +315,10 @@ class Optimize(object):
             write_charges('charges_{}'.format(step), charges)
             grad = gradient(charges, self)
             write_charges('gradient_{}'.format(step), grad)
+            print(grad)
+            grad = Optimize.get_bounds(self, grad, charges)
+            print(grad)
             grad = np.array(grad)
-            grad[charges_to_kill] = 0.0
             constrained_step = constrain_net_charge(grad)
             norm_const_step = constrained_step / np.linalg.norm(constrained_step)
             charges_plus_one = charges - self.step_size*norm_const_step
