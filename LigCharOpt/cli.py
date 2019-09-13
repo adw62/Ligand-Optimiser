@@ -20,7 +20,7 @@ Usage:
             [--yaml_path=STRING] [--o_atom_list=LIST] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT]
             [--net_charge=INT] [--gaff_ver=INT] [--equi=INT] [--num_fep=INT] [--auto_select=STRING] [--charge_only=BOOL]
             [--vdw_only=BOOL] [--optimize=BOOL] [--num_gpu=INT] [--opt_name=STRING] [--step_size=FLOAT] [--exclude_dualtopo=BOOL]
-            [--opt_steps=INT] [--central_diff=BOOL] [--restart=STR] [--scipy=BOOL] [--job_type=STRING]...
+            [--opt_steps=INT] [--central_diff=BOOL] [--restart=INT] [--job_type=STRING]...
 """
 
 
@@ -153,17 +153,9 @@ def main(argv=None):
             central_diff = True
             logger.debug(msg.format('finite difference method', 'central difference'))
 
-        if args['--scipy']:
-            scipy_bool = int(args['--scipy'])
-        else:
-            scipy_bool = False
-
-        if not scipy_bool:
-            optimizer_names = ['gradient_decent', 'Newton', 'Gauss-Newton', 'FEP_only',
-                               'SSP_convergence_test', 'FEP_convergence_test', 'FS_test']
-        else:
-            optimizer_names = ['Newton-CG']
-
+        test_names = ['FEP_only', 'SSP_convergence_test', 'FEP_convergence_test', 'FS_test']
+        optimizer_names = ['gradient_decent', 'Newton', 'Gauss-Newton'] + test_names
+        
         if args['--opt_name']:
             opt_name = args['--opt_name']
             if opt_name not in optimizer_names:
@@ -305,5 +297,5 @@ def main(argv=None):
 
     LigCharOpt(output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name,
          job_type, auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, vdw_only, gaff_ver,
-             opt, num_gpu, num_fep, equi, central_diff, opt_name, opt_steps, step_size, exclude_dualtopo, restart, scipy_bool)
+             opt, num_gpu, num_fep, equi, central_diff, opt_name, opt_steps, step_size, exclude_dualtopo, restart)
 
