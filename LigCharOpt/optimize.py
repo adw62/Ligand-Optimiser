@@ -316,12 +316,9 @@ class Optimize(object):
             write_charges('charges_{}'.format(step), charges)
             grad = gradient(charges, self)
             write_charges('gradient_{}'.format(step), grad)
-            print(grad)
             grad = Optimize.get_bounds(self, grad, charges)
-            print(grad)
             grad = np.array(grad)
             constrained_step = constrain_net_charge(grad)
-            print(constrained_step)
             norm_const_step = constrained_step / np.linalg.norm(constrained_step)
             charges_plus_one = charges - self.step_size*norm_const_step
             # run new dynamics with updated charges
@@ -467,7 +464,6 @@ def hessian(charges, grad, sim):
 
 def constrain_net_charge(delta):
     val = np.sum(delta) / len(delta)
-    print(val)
     delta = [x - val for x in delta]
     return np.array(delta)
 
