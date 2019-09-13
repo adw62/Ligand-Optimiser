@@ -298,13 +298,14 @@ class Optimize(object):
         ddg_fep = complex_dg - solvent_dg
         line = ddg_fep[0]
         best_window = list(line).index(min(line))
-        logger.debug('Line search found best window {} with value'.format(best_window, line[best_window]))
         if best_window == 0:
             logger.debug('Line search failed, taking small step up hill')
             best_window = 1
+        ddg = line[best_window]
+        logger.debug('Line search found best window {} with value {}'.format(best_window, ddg))
         #Get charges corresponding to best window
         charges_plus_one = [a+((b-a)/(windows-1))*(best_window) for a, b in zip(charges, charges_plus_one)]
-        return charges_plus_one, line[best_window]
+        return charges_plus_one, ddg
 
     def gradient_decent(self):
         og_charges = np.array([x[0] for x in self.wt_nonbonded])
@@ -320,6 +321,7 @@ class Optimize(object):
             print(grad)
             grad = np.array(grad)
             constrained_step = constrain_net_charge(grad)
+            print(constrained_step)
             norm_const_step = constrained_step / np.linalg.norm(constrained_step)
             charges_plus_one = charges - self.step_size*norm_const_step
             # run new dynamics with updated charges
@@ -465,6 +467,7 @@ def hessian(charges, grad, sim):
 
 def constrain_net_charge(delta):
     val = np.sum(delta) / len(delta)
+    print(val)
     delta = [x - val for x in delta]
     return np.array(delta)
 
