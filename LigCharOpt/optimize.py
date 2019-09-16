@@ -19,7 +19,7 @@ ee = e*e
 
 class Optimize(object):
     def __init__(self, wt_ligand, complex_sys, solvent_sys, output_folder, num_frames, equi, name, steps,
-                 charge_only, central_diff, num_fep, step_size, mol, restart):
+                 charge_only, central_diff, num_fep, line_q_step, line_windows, line_sampling, mol, restart):
 
         self.complex_sys = complex_sys
         self.solvent_sys = solvent_sys
@@ -30,7 +30,11 @@ class Optimize(object):
         self.charge_only = charge_only
         self.central = central_diff
         self.num_fep = num_fep
-        self.step_size = step_size
+        self.line_q_step = line_q_step
+        self.line_windows = line_windows
+        #converst sampling to ns then work out the number of iterations needed in MBAR
+        # to give that amount of sampling in total if each iteration has 2500 2fs steps.
+        self.line_n_iterations = int(math.ceil((line_sampling*1e-9)/(self.line_windows*2500*2e-15)))
         self.mol = mol
         self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep,\
         self.net_charge = Optimize.build_params(self, wt_ligand)
@@ -219,7 +223,7 @@ class Optimize(object):
             raise ValueError('Net charge change')
         return peturb_charges
 
-    def run_fep(self, opt_charges, steps, n_iterations=50, windows=12, original_charges=None, return_matrix=True):
+    def run_fep(self, opt_charges, steps, n_iterations=50, windows=12, original_charges=None, return_matrix=False):
         if original_charges is None:
             original_charges = [x[0] for x in self.wt_nonbonded]
         opt_exceptions = Optimize.get_charge_product(self, opt_charges)
@@ -256,7 +260,7 @@ class Optimize(object):
             constrained_delta = constrain_net_charge(delta)
             logger.debug(constrained_delta)
             norm_const_delta = constrained_delta / np.linalg.norm(constrained_delta)
-            charges = charges - norm_const_delta*self.step_size
+            charges = charges - norm_const_delta*self.line_q_step
             logger.debug(charges)
             exceptions = Optimize.get_charge_product(self, charges)
             com_mut_param, sol_mut_param = build_opt_params([charges], [exceptions], self)
@@ -277,69 +281,79 @@ class Optimize(object):
         self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent',
                                                                         self.num_frames, self.equi,
                                                                         sol_mut_param[0])
-    def get_bounds(self, grad, charges, bound=0.5):
-        logger.debug('Applying bounds')
-        for i, (x, y, z) in enumerate(zip(charges, self.true_orginal_charges, grad)):
-            diff = x-y
-            if abs(diff) > bound:
-                if diff < -bound and z < 0:
-                    logger.debug('Bounding charge {} change to {}'.format(i, -bound))
-                    grad[i] = 0
-                if diff > bound and z > 0:
-                    logger.debug('Bounding charge {} change to {}'.format(i, bound))
-                    grad[i] = 0
-        return grad
 
     def line_search(self, charges, charges_plus_one):
-        windows = 40
         complex_dg, complex_error, solvent_dg, solvent_error = Optimize.run_fep(self, charges_plus_one,
-                                                                                2500, n_iterations=20,
-                                                                                windows=windows, original_charges=charges)
+                                                                                2500, n_iterations=self.line_n_iterations,
+                                                                                windows=self.line_windows, original_charges=charges,
+                                                                                return_matrix=True)
         ddg_fep = complex_dg - solvent_dg
         line = ddg_fep[0]
         best_window = list(line).index(min(line))
-        if best_window == 0:
-            logger.debug('Line search failed, taking small step up hill')
-            best_window = 1
         ddg = line[best_window]
         logger.debug('Line search found best window {} with value {}'.format(best_window, ddg))
-        #Get charges corresponding to best window
-        charges_plus_one = [a+((b-a)/(windows-1))*(best_window) for a, b in zip(charges, charges_plus_one)]
-        return charges_plus_one, ddg
+        # Get charges corresponding to best window
+        charges_plus_one = [a + ((b - a) / (self.line_windows - 1)) * (best_window) for a, b in
+                            zip(charges, charges_plus_one)]
+        if best_window == 0:
+            logger.debug('Reducing step size')
+            return charges, ddg, [False, False]
+        if best_window == len(line)-1:
+            logger.debug('Extending line search')
+            return charges_plus_one, ddg, [False, True]
+        return charges_plus_one, ddg, [True, None]
 
     def gradient_decent(self):
         og_charges = np.array([x[0] for x in self.wt_nonbonded])
         charges = copy.deepcopy(og_charges)
         step = 0
         total_ddg = 0.0
-        while step < self.steps:
+        max_attempt = 5
+        attempt = 1
+        while step < self.steps and attempt < max_attempt:
             write_charges('charges_{}'.format(step), charges)
             grad = gradient(charges, self)
             write_charges('gradient_{}'.format(step), grad)
-            grad = Optimize.get_bounds(self, grad, charges)
             grad = np.array(grad)
             constrained_step = constrain_net_charge(grad)
             norm_const_step = constrained_step / np.linalg.norm(constrained_step)
-            charges_plus_one = charges - self.step_size*norm_const_step
+            charges_plus_one = charges - self.line_q_step*norm_const_step
             # run new dynamics with updated charges
             complete = False
             attempt = 1
             while not complete:
                 try:
-                    logger.debug('Current step size {}'.format(self.step_size))
+                    logger.debug('Current step size {}'.format(self.line_q_step))
                     #run line search
-                    charges_plus_one, ddg = Optimize.line_search(self, charges, charges_plus_one)
+                    charges_plus_one, ddg, success = Optimize.line_search(self, charges, charges_plus_one)
+                    total_ddg += ddg
+                    #If line search fails
+                    if not success[0]:
+                        #If failure is because no window is down hill
+                        if not success[1]:
+                            attempt += 1
+                            #reduce step size to find a good window
+                            self.line_q_step = 0.15 * self.line_q_step
+                            charges_plus_one = charges - self.line_q_step*norm_const_step
+                            continue
+                        # If 'failure' beacuse last window is best window
+                        if success[1]:
+                            #extend line search with hope of contiuing down hill
+                            charges = charges_plus_one
+                            charges_plus_one = charges - self.line_q_step*norm_const_step
+                            continue
+                    #If sucsseful run dynamics on charges plus one for next grad calc
                     exceptions = Optimize.get_charge_product(self, charges_plus_one)
                     com_mut_param, sol_mut_param = build_opt_params([charges_plus_one], [exceptions], self)
                     Optimize.run_dynamics(self, com_mut_param, sol_mut_param)
-                    total_ddg += ddg
                     complete = True
                 except (KeyboardInterrupt):
                     sys.exit()
-                except:
-                    logger.debug('Caught NaN for step {} attempt {}'.format(step, attempt))
-                    self.step_size = 0.8*self.step_size
-                    charges_plus_one = charges - self.step_size*norm_const_step
+                except Exception as err:
+                    #If step is too large catch nan from openmm and reduce step
+                    logger.debug('Caught {} for step {} attempt {}'.format(err, step, attempt))
+                    self.line_q_step = 0.9*self.line_q_step
+                    charges_plus_one = charges - self.line_q_step*norm_const_step
                     attempt += 1
             charges = charges_plus_one
             write_charges('charges_opt', charges)

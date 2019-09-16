@@ -19,8 +19,8 @@ e = unit.elementary_charges
 
 class LigCharOpt(object):
     def __init__(self, output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name, job_type,
-                 auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, vdw_only, gaff_ver, opt, num_gpu,
-                 num_fep, equi, central_diff, opt_name, opt_steps, step_size, exclude_dualtopo, restart):
+                 auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu,
+                 num_fep, equi, central_diff, opt_name, opt_steps, line_q_step, line_windows, line_sampling, exclude_dualtopo, restart):
 
         self.output_folder = output_folder
         self.net_charge = net_charge
@@ -79,7 +79,7 @@ class LigCharOpt(object):
         #COMPLEX
         self.complex_sys = []
         self.complex_sys.append(FSim(ligand_name=ligand_name, sim_name=complex_name, input_folder=input_folder,
-                                     charge_only=charge_only, vdw_only=vdw_only, num_gpu=num_gpu, offset=self.complex_offset,
+                                     charge_only=charge_only, vdw_only=False, num_gpu=num_gpu, offset=self.complex_offset,
                                      opt=opt, exclude_dualtopo=exclude_dualtopo))
         self.complex_sys.append([complex_sim_dir + complex_name + '.dcd'])
         self.complex_sys.append(complex_sim_dir + complex_name + '.pdb')
@@ -87,14 +87,14 @@ class LigCharOpt(object):
         #SOLVENT
         self.solvent_sys = []
         self.solvent_sys.append(FSim(ligand_name=ligand_name, sim_name=solvent_name, input_folder=input_folder,
-                                     charge_only=charge_only, vdw_only=vdw_only, num_gpu=num_gpu, offset=self.solvent_offset,
+                                     charge_only=charge_only, vdw_only=False, num_gpu=num_gpu, offset=self.solvent_offset,
                                      opt=opt, exclude_dualtopo=exclude_dualtopo))
         self.solvent_sys.append([solvent_sim_dir + solvent_name + '.dcd'])
         self.solvent_sys.append(solvent_sim_dir + solvent_name + '.pdb')
 
         if opt:
             Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, equi, opt_name, opt_steps,
-                     charge_only, central_diff, self.num_fep, step_size, self.mol, restart)
+                     charge_only, central_diff, self.num_fep, line_q_step, line_windows, line_sampling, self.mol, restart)
         else:
             LigCharOpt.fep(self, wt_ligand, auto_select, c_atom_list, h_atom_list, o_atom_list)
 
