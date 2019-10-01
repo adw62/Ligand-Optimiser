@@ -19,8 +19,8 @@ e = unit.elementary_charges
 
 class LigCharOpt(object):
     def __init__(self, output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name, job_type,
-                 auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, gaff_ver, opt, num_gpu,
-                 num_fep, equi, central_diff, opt_name, opt_steps, line_q_step, line_windows, line_sampling, exclude_dualtopo, restart):
+                 auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, vdw_only, gaff_ver, opt, num_gpu,
+                 num_fep, equi, central_diff, opt_name, opt_steps, rmsd, exclude_dualtopo):
 
         self.output_folder = output_folder
         self.net_charge = net_charge
@@ -75,26 +75,50 @@ class LigCharOpt(object):
                                   net_charge=self.net_charge, gaff=self.gaff_ver)
 
         logger.debug('Loading complex and solvent systems...')
+        tests = ['SSP_convergence_test', 'FEP_convergence_test', 'FS_test']
+
+        if opt == True:
+            if opt_name in tests:
+                run_dynamics = False
+            else:
+                run_dynamics = True
+        else:
+            run_dynamics = False
 
         #COMPLEX
         self.complex_sys = []
         self.complex_sys.append(FSim(ligand_name=ligand_name, sim_name=complex_name, input_folder=input_folder,
-                                     charge_only=charge_only, vdw_only=False, num_gpu=num_gpu, offset=self.complex_offset,
+                                     charge_only=charge_only, vdw_only=vdw_only, num_gpu=num_gpu, offset=self.complex_offset,
                                      opt=opt, exclude_dualtopo=exclude_dualtopo))
         self.complex_sys.append([complex_sim_dir + complex_name + '.dcd'])
         self.complex_sys.append(complex_sim_dir + complex_name + '.pdb')
-
+        if run_dynamics:
+            if not os.path.isfile(self.complex_sys[1][0]):
+                self.complex_sys[1] = [complex_sim_dir + complex_name + '_gpu' + str(x) + '.dcd' for x in range(num_gpu)]
+                for name in self.complex_sys[1]:
+                    if not os.path.isfile(name):
+                        self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(complex_sim_dir, complex_name,
+                                                                                        self.num_frames, equi, None)
+                        break
         #SOLVENT
         self.solvent_sys = []
         self.solvent_sys.append(FSim(ligand_name=ligand_name, sim_name=solvent_name, input_folder=input_folder,
-                                     charge_only=charge_only, vdw_only=False, num_gpu=num_gpu, offset=self.solvent_offset,
+                                     charge_only=charge_only, vdw_only=vdw_only, num_gpu=num_gpu, offset=self.solvent_offset,
                                      opt=opt, exclude_dualtopo=exclude_dualtopo))
         self.solvent_sys.append([solvent_sim_dir + solvent_name + '.dcd'])
         self.solvent_sys.append(solvent_sim_dir + solvent_name + '.pdb')
+        if run_dynamics:
+            if not os.path.isfile(self.solvent_sys[1][0]):
+                self.solvent_sys[1] = [solvent_sim_dir + solvent_name + '_gpu' + str(x) + '.dcd' for x in range(num_gpu)]
+                for name in self.solvent_sys[1]:
+                    if not os.path.isfile(name):
+                        self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(solvent_sim_dir, solvent_name,
+                                                                                        self.num_frames, equi, None)
+                        break
 
         if opt:
             Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, equi, opt_name, opt_steps,
-                     charge_only, central_diff, self.num_fep, line_q_step, line_windows, line_sampling, self.mol, restart)
+                     charge_only, central_diff, self.num_fep, rmsd, self.mol)
         else:
             LigCharOpt.fep(self, wt_ligand, auto_select, c_atom_list, h_atom_list, o_atom_list)
 

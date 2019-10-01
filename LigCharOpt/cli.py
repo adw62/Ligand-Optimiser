@@ -3,7 +3,6 @@
 import os
 import shutil
 import logging
-import math
 
 from .ligcharopt import LigCharOpt
 from docopt import docopt
@@ -18,10 +17,9 @@ usage = """
 LIGCHAROPT
 Usage:
   LigCharOpt [--output_folder=STRING] [--mol_name=STRING] [--ligand_name=STRING] [--complex_name=STRING] [--solvent_name=STRING]
-            [--yaml_path=STRING] [--o_atom_list=LIST] [--c_atom_list=LIST] [--h_atom_list=LIST] [--sampling=INT] 
-            [--net_charge=INT] [--gaff_ver=INT] [--equi=INT] [--num_fep=INT] [--auto_select=STRING] [--charge_only=BOOL]
-            [--optimize=BOOL] [--num_gpu=INT] [--opt_name=STRING] [--exclude_dualtopo=BOOL]
-            [--central_diff=BOOL] [--restart=INT] [--line_q_step=FLOAT] [--opt_steps=INT] [--line_windows=INT] [--line_sampling=FLOAT] [--job_type=STRING]...
+            [--yaml_path=STRING] [--o_atom_list=LIST] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT] [--net_charge=INT]
+            [--gaff_ver=INT] [--equi=INT] [--num_fep=INT] [--auto_select=STRING] [--charge_only=BOOL] [--vdw_only=BOOL] [--optimize=BOOL]
+            [--num_gpu=INT] [--opt_name=STRING] [--rmsd=FLOAT] [--exclude_dualtopo=BOOL] [--opt_steps=INT] [--central_diff=BOOL] [--job_type=STRING]...
 """
 
 
@@ -88,6 +86,18 @@ def main(argv=None):
         ligand_name = 'MOL'
         logger.debug(msg.format('ligand residue name', ligand_name))
 
+    if args['--num_frames']:
+        num_frames = int(args['--num_frames'])
+    else:
+        num_frames = 500
+        logger.debug(msg.format('number of frames', num_frames))
+
+    if args['--equi']:
+        equi = int(args['--equi'])
+    else:
+        equi = 100
+        logger.debug(msg.format('Number of equlibriation steps', equi))
+
     if args['--net_charge']:
         net_charge = int(args['--net_charge'])
     else:
@@ -106,8 +116,16 @@ def main(argv=None):
         charge_only = int(args['--charge_only'])
     else:
         charge_only = False
+    if args['--vdw_only']:
+        vdw_only = int(args['--vdw_only'])
+    else:
+        vdw_only = False
+    if charge_only and vdw_only:
+        raise ValueError('charge_only and vdw_only conflicting options')
     if charge_only == True:
         logger.debug('Mutating ligand charges only...')
+    elif vdw_only == True:
+        logger.debug('Mutating ligand VDW only...')
     else:
         logger.debug('Mutating all ligand parameters...')
         
@@ -133,48 +151,24 @@ def main(argv=None):
         else:
             central_diff = True
             logger.debug(msg.format('finite difference method', 'central difference'))
-
-        test_names = ['FEP_only', 'SSP_convergence_test', 'FEP_convergence_test', 'FS_test']
-        optimizer_names = ['gradient_decent', 'Newton', 'Gauss-Newton'] + test_names
-        
+        optimizer_names = ['scipy', 'FEP_only', 'SSP_convergence_test', 'FEP_convergence_test', 'FS_test']
         if args['--opt_name']:
             opt_name = args['--opt_name']
             if opt_name not in optimizer_names:
                 raise ValueError('Unknown optimizer specified chose from {}'.format(optimizer_names))
         else:
-            opt_name = 'gradient_decent'
+            opt_name = 'scipy'
             logger.debug(msg.format('optimization method', opt_name))
         if args['--opt_steps']:
             opt_steps = int(args['--opt_steps'])
         else:
             opt_steps = 10
             logger.debug(msg.format('number of optimization steps', opt_steps))
-        if args['--line_q_step']:
-            line_q_step = float(args['--line_q_step'])
+        if args['--rmsd']:
+            rmsd = float(args['--rmsd'])
         else:
-            line_q_step = 0.1
-            logger.debug(msg.format('optimization step size', line_q_step))
-        if args['--line_windows']:
-            line_windows = int(args['--line_windows'])
-        else:
-            line_windows = 10
-            logger.debug(msg.format('number of windows in optimization line search', line_windows))
-        if args['--line_sampling']:
-            line_sampling = float(args['--line_sampling'])
-        else:
-            line_sampling = 1.0
-            logger.debug(msg.format('sampling in optimization line search', line_sampling))
-        if args['--sampling']:
-            num_frames = (float(args['--sampling'])*1e-9)/5e-12
-            num_frames = int(math.ceil(num_frames))
-        else:
-            num_frames = 300
-            logger.debug(msg.format('number of frames for gradient', num_frames))
-        if args['--equi']:
-            equi = int(args['--equi'])
-        else:
-            equi = 50
-            logger.debug(msg.format('Number of equlibriation steps for gradient calculation', equi))
+            rmsd = 0.03
+            logger.debug(msg.format('optimization rmsd', rmsd))
     else:
         logger.debug('Scanning ligand...')
         if args['--central_diff']:
@@ -189,26 +183,10 @@ def main(argv=None):
             raise ValueError('Number of optimization steps option only compatible with an optimization')
         else:
             opt_steps = None
-        if args['--line_q_step']:
-            raise ValueError('Optimization step size option only compatible with an optimization')
+        if args['--rmsd']:
+            raise ValueError('Optimization rmsd option only compatible with an optimization')
         else:
-            line_q_step = None
-        if args['--line_windows']:
-            raise ValueError('Number of windows in line search only compatible with an optimization')
-        else:
-            line_windows = None
-        if args['--line_sampling']:
-            raise ValueError('Sampling in line search only compatible with an optimization')
-        else:
-            line_sampling = None
-        if args['--sampling']:
-            raise ValueError('Number of frames for optimization gradient only compatible with an optimization')
-        else:
-            num_frames = None
-        if args['--equi']:
-            raise ValueError('Number of equilibriation frames for optimization gradient only compatible with an optimization')
-        else:
-            equi = None
+            rmsd = None
         if args['--c_atom_list']:
             c_atom_list = []
             pairs = args['--c_atom_list']
@@ -302,18 +280,9 @@ def main(argv=None):
     else:
         num_fep = 1
         logger.debug(msg.format('number of FEP calculations', num_fep))
-        
-    if args['--restart']:
-        restart = args['--restart']
-        if int(restart):
-            restart = [True, './charges_opt']
-            logger.debug('Using default restart file ./charge_opt')
-    else:
-        restart = [False, '']
-        
 
 
     LigCharOpt(output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name,
-         job_type, auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, gaff_ver,
-             opt, num_gpu, num_fep, equi, central_diff, opt_name, opt_steps, line_q_step, line_windows, line_sampling, exclude_dualtopo, restart)
+         job_type, auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, charge_only, vdw_only, gaff_ver,
+             opt, num_gpu, num_fep, equi, central_diff, opt_name, opt_steps, rmsd, exclude_dualtopo)
 
