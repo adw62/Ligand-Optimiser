@@ -132,8 +132,8 @@ Optimise the atomistic charges of ligand to maximize receptor binding affinity.
 
 Optimise atomic charges of a ligand and verify the ddG of this optimisation with one full FEP calculation 
 
-    LigCharOpt --optimize='1' --charge_only='1' --yaml_path='./setup.yaml'
+    LigCharOpt --optimize=1 --charge_only=1 --yaml_path='./setup.yaml'
 
 Run a full FEP calculations on all mutants with 'O.3' oxygens swapped for S  
 
-    LigCharOpt --job_type='S' --auto_select='3' --yaml_path='./setup.yaml'
+    LigCharOpt --job_type='S' --auto_select=3 --yaml_path='./setup.yaml'
