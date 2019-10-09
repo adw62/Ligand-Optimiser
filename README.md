@@ -2,7 +2,7 @@
 Optimise the atomistic charges of ligand to maximize receptor binding affinity.
 
 # Installation
-via conda:
+- via conda:
 
     conda config --add channels omnia --add channels conda-forge
 
