@@ -5,9 +5,9 @@ Optimise the atomistic charges of ligand to maximize receptor binding affinity.
 
     via conda:
 
-    conda config --add channels omnia --add channels conda-forge
+        conda config --add channels omnia --add channels conda-forge
 
-    conda install -c adw62 ligcharopt
+        conda install -c adw62 ligcharopt
 
   
 # Options
