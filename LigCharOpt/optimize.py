@@ -10,15 +10,18 @@ import logging
 import numpy as np
 import math
 
+from Fluorify.fluorify import Fluorify
+
 logger = logging.getLogger(__name__)
 
 #CONSTANTS
 e = unit.elementary_charges
 ee = e*e
+nm = unit.nanometer
 
 class Optimize(object):
     def __init__(self, wt_ligand, complex_sys, solvent_sys, output_folder, num_frames, equi, name, steps,
-                 charge_only, central_diff, num_fep, rmsd, mol):
+                 param, central_diff, num_fep, rmsd, mol):
 
         self.complex_sys = complex_sys
         self.solvent_sys = solvent_sys
@@ -26,55 +29,61 @@ class Optimize(object):
         self.equi = equi
         self.steps = steps
         self.output_folder = output_folder
-        self.charge_only = charge_only
+        self.param = param
         self.central = central_diff
         self.num_fep = num_fep
         self.rmsd = rmsd
         self.mol = mol
-        self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep,\
-        self.net_charge = Optimize.build_params(self, wt_ligand)
+        self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep = Optimize.build_params(self, wt_ligand)
+        if self.param == 'charge':
+            self.net_charge = Optimize.get_net_charge(self, self.wt_nonbonded)
         self.excep_scaling = Optimize.get_exception_scaling(self)
         Optimize.optimize(self, name)
 
+    def get_net_charge(self, wt_nonbonded):
+        return sum([x[0] for x in wt_nonbonded])
+
     def build_params(self, wt_ligand):
-        if self.charge_only == False:
-            #TODO add VDW
-            raise ValueError('Can only optimize charge')
-        else:
-            #get all wt params
-            wt_parameters = wt_ligand.get_parameters()
-            #trim down to nonbonded and exclusions
-            wt_nonbonded = wt_parameters[0]
-            wt_excep = wt_parameters[1]
-            wt_nonbonded_ids = [x['id'] for x in wt_nonbonded]
+        # get all wt params
+        wt_parameters = wt_ligand.get_parameters()
+        # trim down to nonbonded and exclusions
+        wt_nonbonded = wt_parameters[0]
+        wt_excep = wt_parameters[1]
+        wt_nonbonded_ids = [x['id'] for x in wt_nonbonded]
+
+        if self.param == 'charge':
+            #reduce to charge only
             wt_nonbonded = [x['data'][0]/e for x in wt_nonbonded]
             wt_nonbonded = [[x] for x in wt_nonbonded]
             wt_excep = [{'id': x['id'], 'data': x['data'][0]/ee} for x in wt_excep]
-            net_charge = sum([x[0] for x in wt_nonbonded])
-        return wt_nonbonded, wt_nonbonded_ids, wt_excep, net_charge
+        elif self.param == 'sigma':
+            #reduce to sigma only
+            wt_nonbonded = [x['data'][1] / nm for x in wt_nonbonded]
+            wt_nonbonded = [[x] for x in wt_nonbonded]
+            wt_excep = [{'id': x['id'], 'data': x['data'][1] / nm} for x in wt_excep]
+        else:
+            raise ValueError('Unaccepted param choice for optimization. Please set param to charge or sigma')
+
+        return wt_nonbonded, wt_nonbonded_ids, wt_excep
+
 
     def get_exception_scaling(self):
         exceptions = copy.deepcopy(self.wt_excep)
-        if self.charge_only == False:
-            pass
-        else:
-            for atom_id, param in zip(self.wt_nonbonded_ids, self.wt_nonbonded):
-                charge = param[0]
-                for charge_prod in exceptions:
-                    if atom_id in charge_prod['id']:
-                        charge_prod['data'] = charge_prod['data']/charge
+        for atom_id, parameter in zip(self.wt_nonbonded_ids, self.wt_nonbonded):
+            charge = parameter[0]
+            for charge_prod in exceptions:
+                if atom_id in charge_prod['id']:
+                    charge_prod['data'] = charge_prod['data']/charge
         return exceptions
 
     def get_charge_product(self, charges):
+        #Works for all param types q, sig, eps
         charge_ids = self.wt_nonbonded_ids
         new_charge_product = copy.deepcopy(self.excep_scaling)
-        if self.charge_only == False:
-            pass
-        else:
-            for atom_id, charge in zip(charge_ids, charges):
-                for charge_prod in new_charge_product:
-                    if atom_id in charge_prod['id']:
-                        charge_prod['data'] = charge_prod['data']*charge
+        for atom_id, charge in zip(charge_ids, charges):
+            for charge_prod in new_charge_product:
+                if atom_id in charge_prod['id']:
+                    charge_prod['data'] = charge_prod['data']*charge
         return new_charge_product
 
     def optimize(self, name):
@@ -205,9 +214,12 @@ class Optimize(object):
     def scipy_opt(self):
         og_charges = [x[0] for x in self.wt_nonbonded]
         charges = copy.deepcopy(og_charges)
-        con1 = {'type': 'eq', 'fun': net_charge_con, 'args': [self.net_charge]}
         con2 = {'type': 'ineq', 'fun': rmsd_change_con, 'args': [og_charges, self.rmsd]}
-        cons = [con1, con2]
+        if self.param == 'charge':
+            con1 = {'type': 'eq', 'fun': net_charge_con, 'args': [self.net_charge]}
+            cons = [con1, con2]
+        else:
+            cons = [con2]
         ddg = 0.0
         for step in range(self.steps):
             write_charges('charges_{}'.format(step), charges)
