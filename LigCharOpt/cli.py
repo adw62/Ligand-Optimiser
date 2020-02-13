@@ -114,7 +114,7 @@ def main(argv=None):
 
     if args['--param']:
         param = str(args['--param'])
-        accepted_param = ['charge', 'sigma', 'vdw', 'all']
+        accepted_param = ['charge', 'sigma', 'vdw', 'weight', 'all']
         if param not in accepted_param:
             raise ValueError('param selected not in accepted params: {}'.format(accepted_param))
     else:
@@ -126,6 +126,8 @@ def main(argv=None):
         logger.debug('Mutating ligand VDW only...')
     elif param == 'sigma':
         logger.debug('Mutating ligand sigmas only...')
+    elif param == 'weight':
+        logger.debug('Mutating ligand weights only...')
     else:
         logger.debug('Mutating all ligand parameters...')
         

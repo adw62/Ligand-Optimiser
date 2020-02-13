@@ -35,10 +35,20 @@ class Optimize(object):
         self.rmsd = rmsd
         self.mol = mol
         self.lock_atoms = lock_atoms
+
+        if self.param == 'weight':
+            self.num_virt_sites = len(self.complex_sys[0].virt_atom_order)
+
+        print(self.num_virt_sites)
+
         self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep = Optimize.build_params(self, wt_ligand)
         if self.param == 'charge':
             self.net_charge = Optimize.get_net_charge(self, self.wt_nonbonded)
-        self.excep_scaling = Optimize.get_exception_scaling(self)
+
+        if self.param != 'weight':
+            #will need to come in here and get scaling if doing weight plus charge or sigma
+            self.excep_scaling = Optimize.get_exception_scaling(self)
+
         Optimize.optimize(self, name)
 
     def get_net_charge(self, wt_nonbonded):
@@ -61,9 +71,13 @@ class Optimize(object):
             #reduce to sigma only
             wt_nonbonded = [x['data'][1] / nm for x in wt_nonbonded]
             wt_nonbonded = [[x] for x in wt_nonbonded]
-            wt_excep = [{'id': x['id'], 'data': x['data'][1] / nm} for x in wt_excep]
+            wt_excep = [{'id': x['id'], 'data': x['data'][1]/nm} for x in wt_excep]
+        elif self.param == 'weight':
+            #hydrogen const lenght value=0.1097, unit=nanometer
+            wt_nonbonded = [[0.0] for x in range(self.num_virt_sites)]
+            wt_excep = None
         else:
-            raise ValueError('Unaccepted param choice for optimization. Please set param to charge or sigma')
+            raise ValueError('Unaccepted param choice for optimization. Please set param to charge or sigma, weight')
 
         return wt_nonbonded, wt_nonbonded_ids, wt_excep
 
@@ -285,7 +299,6 @@ def build_opt_params(charges, sys_exception_params, sim):
     complex_parameters = [[x, None, y, None] for x, y in zip(charges, exception_params[0])]
     solvent_parameters = [[x, None, y, None] for x, y in zip(charges, exception_params[1])]
     return complex_parameters, solvent_parameters
-
 
 def objective(peturbed_charges, current_charges, sim):
     peturbed_exceptions = Optimize.get_charge_product(sim, peturbed_charges)
