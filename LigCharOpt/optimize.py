@@ -21,7 +21,7 @@ nm = unit.nanometer
 
 class Optimize(object):
     def __init__(self, wt_ligand, complex_sys, solvent_sys, output_folder, num_frames, equi, name, steps,
-                 param, central_diff, num_fep, rmsd, mol):
+                 param, central_diff, num_fep, rmsd, mol, lock_atoms):
 
         self.complex_sys = complex_sys
         self.solvent_sys = solvent_sys
@@ -34,6 +34,7 @@ class Optimize(object):
         self.num_fep = num_fep
         self.rmsd = rmsd
         self.mol = mol
+        self.lock_atoms = lock_atoms
         self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep = Optimize.build_params(self, wt_ligand)
         if self.param == 'charge':
             self.net_charge = Optimize.get_net_charge(self, self.wt_nonbonded)
@@ -318,6 +319,11 @@ def gradient(peturbed_charges, current_charges, sim):
             mutant = copy.deepcopy(peturbed_charges)
             mutant[i] = mutant[i] + diff
             mutant_parameters.append(mutant)
+
+        # Remove systems which correspond to locked atoms
+        for x in reversed(sim.lock_atoms):
+            mutant_parameters.pop(x)
+
         mutant_exceptions = [Optimize.get_charge_product(sim, x) for x in mutant_parameters]
         mutant_parameters.append(current_charges)
         mutant_exceptions.append(Optimize.get_charge_product(sim, current_charges))
@@ -338,9 +344,14 @@ def gradient(peturbed_charges, current_charges, sim):
         binding_free_energy = []
         for forwards, backwards in zip(ddG[0], ddG[1]):
             binding_free_energy.append((forwards - backwards)/dh)
-        return binding_free_energy
-    else:
-        return binding_free_energy
+
+    #add back in energies for systems corrisponing to locked atoms with energy set to zero
+    for x in sim.lock_atoms:
+        binding_free_energy.insert(x, 0.0)
+
+    print(binding_free_energy)
+
+    return binding_free_energy
 
 
 def net_charge_con(current_charge, net_charge):
