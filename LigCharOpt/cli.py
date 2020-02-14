@@ -96,7 +96,7 @@ def main(argv=None):
         equi = int(args['--equi'])
     else:
         equi = 100
-        logger.debug(msg.format('Number of equlibriation steps', equi))
+        logger.debug(msg.format('Number of equilibration steps', equi))
 
     if args['--net_charge']:
         net_charge = int(args['--net_charge'])
@@ -114,11 +114,13 @@ def main(argv=None):
 
     if args['--param']:
         param = str(args['--param'])
+        param = param.split(',')
         accepted_param = ['charge', 'sigma', 'vdw', 'weight', 'all']
-        if param not in accepted_param:
-            raise ValueError('param selected not in accepted params: {}'.format(accepted_param))
+        for x in param:
+            if x not in accepted_param:
+                raise ValueError('param selected not in accepted params: {}'.format(accepted_param))
     else:
-        param = 'all'
+        param = ['all']
 
     if param == 'charge':
         logger.debug('Mutating ligand charges only...')

@@ -35,70 +35,81 @@ class Optimize(object):
         self.rmsd = rmsd
         self.mol = mol
         self.lock_atoms = lock_atoms
+        self.opt_weight = False
 
-        if self.param == 'weight':
-            self.num_virt_sites = len(self.complex_sys[0].virt_atom_order)
+        self.wt_parameters = wt_ligand.get_parameters()
+        self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep = Optimize.build_params(self)
+        self.num_atoms = len(self.wt_nonbonded[0])
 
-        print(self.num_virt_sites)
-
-        self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep = Optimize.build_params(self, wt_ligand)
-        if self.param == 'charge':
+        if 'charge' in self.param:
             self.net_charge = Optimize.get_net_charge(self, self.wt_nonbonded)
 
-        if self.param != 'weight':
+        if not self.opt_weight:
             #will need to come in here and get scaling if doing weight plus charge or sigma
             self.excep_scaling = Optimize.get_exception_scaling(self)
-
+        else:
+            self.num_virt_sites = len(self.complex_sys[0].virt_atom_order)
+            # hydrogen const lenght value=0.1097, unit=nanometer
+            self.virt_weights = [[0.0] for x in range(self.num_virt_sites)]
         Optimize.optimize(self, name)
 
     def get_net_charge(self, wt_nonbonded):
         return sum([x[0] for x in wt_nonbonded])
 
-    def build_params(self, wt_ligand):
-        # get all wt params
-        wt_parameters = wt_ligand.get_parameters()
+    def build_params(self):
         # trim down to nonbonded and exclusions
-        wt_nonbonded = wt_parameters[0]
-        wt_excep = wt_parameters[1]
+        wt_nonbonded = self.wt_parameters[0]
+        wt_excep = self.wt_parameters[1]
         wt_nonbonded_ids = [x['id'] for x in wt_nonbonded]
-
-        if self.param == 'charge':
-            #reduce to charge only
-            wt_nonbonded = [x['data'][0]/e for x in wt_nonbonded]
-            wt_nonbonded = [[x] for x in wt_nonbonded]
-            wt_excep = [{'id': x['id'], 'data': x['data'][0]/ee} for x in wt_excep]
-        elif self.param == 'sigma':
-            #reduce to sigma only
-            wt_nonbonded = [x['data'][1] / nm for x in wt_nonbonded]
-            wt_nonbonded = [[x] for x in wt_nonbonded]
-            wt_excep = [{'id': x['id'], 'data': x['data'][1]/nm} for x in wt_excep]
-        elif self.param == 'weight':
-            #hydrogen const lenght value=0.1097, unit=nanometer
-            wt_nonbonded = [[0.0] for x in range(self.num_virt_sites)]
-            wt_excep = None
-        else:
-            raise ValueError('Unaccepted param choice for optimization. Please set param to charge or sigma, weight')
+        wt_nonbonded = [[x['data'][0]/e, x['data'][1]/nm] for x in wt_nonbonded]
+        wt_excep = [{'id': x['id'], 'data': [x['data'][0]/ee, x['data'][1]/nm]} for x in wt_excep]
 
         return wt_nonbonded, wt_nonbonded_ids, wt_excep
 
-
     def get_exception_scaling(self):
         exceptions = copy.deepcopy(self.wt_excep)
-        for atom_id, parameter in zip(self.wt_nonbonded_ids, self.wt_nonbonded):
-            charge = parameter[0]
-            for charge_prod in exceptions:
-                if atom_id in charge_prod['id']:
-                    charge_prod['data'] = charge_prod['data']/charge
+        #Charge scaling
+        nonbonded = {x: y[0] for (x, y) in zip(self.wt_nonbonded_ids, self.wt_nonbonded)}
+        for product in exceptions:
+            ids = list(product['id'])
+            id0 = ids[0]
+            id1 = ids[1]
+            param0 = nonbonded[id0]
+            param1 = nonbonded[id1]
+            product['data'][0] = product['data'][0]/(param0*param1)
+        #Sigma scaling
+        nonbonded = {x: y[1] for (x, y) in zip(self.wt_nonbonded_ids, self.wt_nonbonded)}
+        for product in exceptions:
+            ids = list(product['id'])
+            id0 = ids[0]
+            id1 = ids[1]
+            param0 = nonbonded[id0]
+            param1 = nonbonded[id1]
+            product['data'][1] = product['data'][1]/((param0+param1)/2)
+
         return exceptions
 
     def get_charge_product(self, charges):
-        #Works for all param types q, sig, eps
-        charge_ids = self.wt_nonbonded_ids
         new_charge_product = copy.deepcopy(self.excep_scaling)
-        for atom_id, charge in zip(charge_ids, charges):
-            for charge_prod in new_charge_product:
-                if atom_id in charge_prod['id']:
-                    charge_prod['data'] = charge_prod['data']*charge
+        # Charge scaling
+        nonbonded = {x: y[0] for (x, y) in zip(self.wt_nonbonded_ids, self.wt_nonbonded)}
+        for product in new_charge_product:
+            ids = list(product['id'])
+            id0 = ids[0]
+            id1 = ids[1]
+            param0 = nonbonded[id0]
+            param1 = nonbonded[id1]
+            product['data'][0] = product['data'][0] * (param0 * param1)
+        # Sigma scaling
+        nonbonded = {x: y[1] for (x, y) in zip(self.wt_nonbonded_ids, self.wt_nonbonded)}
+        for product in new_charge_product:
+            ids = list(product['id'])
+            id0 = ids[0]
+            id1 = ids[1]
+            param0 = nonbonded[id0]
+            param1 = nonbonded[id1]
+            product['data'][1] = product['data'][1] * ((param0 + param1) / 2)
+        print(new_charge_product)
         return new_charge_product
 
     def optimize(self, name):
@@ -228,6 +239,9 @@ class Optimize(object):
 
     def scipy_opt(self):
         og_charges = [x[0] for x in self.wt_nonbonded]
+        og_sigma = [x[1] for x in self.wt_nonbonded]
+        params = [x[0] for x in self.wt_nonbonded].extend(og_sigma)
+        #CURRENT
         charges = copy.deepcopy(og_charges)
         con2 = {'type': 'ineq', 'fun': rmsd_change_con, 'args': [og_charges, self.rmsd]}
         if self.param == 'charge':
