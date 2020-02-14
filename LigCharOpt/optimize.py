@@ -67,24 +67,34 @@ class Optimize(object):
 
         return wt_nonbonded, wt_nonbonded_ids, wt_excep
 
-
     def get_exception_scaling(self):
         exceptions = copy.deepcopy(self.wt_excep)
-        for atom_id, parameter in zip(self.wt_nonbonded_ids, self.wt_nonbonded):
-            charge = parameter[0]
-            for charge_prod in exceptions:
-                if atom_id in charge_prod['id']:
-                    charge_prod['data'] = charge_prod['data']/charge
+        nonbonded = {x: y[0] for (x, y) in zip(self.wt_nonbonded_ids, self.wt_nonbonded)}
+        for product in exceptions:
+            ids = list(product['id'])
+            id0 = ids[0]
+            id1 = ids[1]
+            param0 = nonbonded[id0]
+            param1 = nonbonded[id1]
+            if self.param == 'charge':
+                product['data'] = product['data']/(param0*param1)
+            elif self.param == 'sigma':
+                product['data'] = product['data']/((param0+param1)/2)
         return exceptions
 
     def get_charge_product(self, charges):
-        #Works for all param types q, sig, eps
-        charge_ids = self.wt_nonbonded_ids
         new_charge_product = copy.deepcopy(self.excep_scaling)
-        for atom_id, charge in zip(charge_ids, charges):
-            for charge_prod in new_charge_product:
-                if atom_id in charge_prod['id']:
-                    charge_prod['data'] = charge_prod['data']*charge
+        nonbonded = {x: y[0] for (x, y) in zip(self.wt_nonbonded_ids, charges)}
+        for product in new_charge_product:
+            ids = list(product['id'])
+            id0 = ids[0]
+            id1 = ids[1]
+            param0 = nonbonded[id0]
+            param1 = nonbonded[id1]
+            if self.param == 'charge':
+                product['data'] = product['data']*(param0 * param1)
+            elif self.param == 'sigma':
+                product['data'] = product['data']*((param0 + param1) / 2)
         return new_charge_product
 
     def optimize(self, name):
