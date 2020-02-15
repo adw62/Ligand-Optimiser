@@ -20,7 +20,7 @@ e = unit.elementary_charges
 class LigCharOpt(object):
     def __init__(self, output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name, job_type,
                  auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, param, gaff_ver, opt, num_gpu,
-                 num_fep, equi, central_diff, opt_name, opt_steps, rmsd, exclude_dualtopo):
+                 num_fep, equi, central_diff, opt_name, opt_steps, rmsd, exclude_dualtopo, lock_atoms):
 
         self.output_folder = output_folder
         self.net_charge = net_charge
@@ -118,7 +118,7 @@ class LigCharOpt(object):
 
         if opt:
             Optimize(wt_ligand, self.complex_sys, self.solvent_sys, output_folder, self.num_frames, equi, opt_name, opt_steps,
-                     param, central_diff, self.num_fep, rmsd, self.mol)
+                     param, central_diff, self.num_fep, rmsd, self.mol, lock_atoms)
         else:
             LigCharOpt.fep(self, wt_ligand, auto_select, c_atom_list, h_atom_list, o_atom_list)
 
