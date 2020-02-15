@@ -84,7 +84,7 @@ class Optimize(object):
 
     def get_charge_product(self, charges):
         new_charge_product = copy.deepcopy(self.excep_scaling)
-        nonbonded = {x: y[0] for (x, y) in zip(self.wt_nonbonded_ids, charges)}
+        nonbonded = {x: y for (x, y) in zip(self.wt_nonbonded_ids, charges)}
         for product in new_charge_product:
             ids = list(product['id'])
             id0 = ids[0]
