@@ -3,6 +3,7 @@
 
 from Fluorify.energy import *
 from Fluorify.mol2 import *
+from Fluorify.mutants import *
 from simtk import unit
 from scipy.optimize import minimize
 import copy
@@ -34,11 +35,24 @@ class Optimize(object):
         self.num_fep = num_fep
         self.rmsd = rmsd
         self.mol = mol
-        self.lock_atoms = lock_atoms
 
         self.wt_parameters = wt_ligand.get_parameters()
+        #Unused contains bond, angle and torsion parameters which are not optimized
+        self.unused_params = self.wt_parameters[2:5]
+        self.wt_parameters = self.wt_parameters[0:2]
         self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep = Optimize.build_params(self)
         self.excep_scaling = Optimize.get_exception_scaling(self)
+
+        #Collect indexs for atoms which have no virtual, therefore replced insitu
+        #And idexes for atoms which have virtuals, therfore replace
+        assert self.complex_sys[0].virt_atom_order == self.solvent_sys[0].virt_atom_order
+        self.all_virt = self.complex_sys[0].virt_atom_order
+        self.all_insitu = list(set(self.wt_nonbonded_ids).difference(set(self.all_virt)))
+        #Convert to indexing from 0(python) to from 1(mol2)
+        self.all_insitu = [x+1 for x in self.all_insitu]
+        self.all_virt = [x+1 for x in self.all_virt]
+
+        self.lock_atoms = Optimize.make_lock_list(self, lock_atoms)
 
         if 'charge' in self.param:
             self.net_charge = Optimize.get_net_charge(self, self.wt_nonbonded)
@@ -52,12 +66,26 @@ class Optimize(object):
 
         Optimize.optimize(self, name)
 
+    def make_lock_list(self, lock_atoms):
+        #shift from indexed by 1(mol2) to indexed by 0(python)
+        lock_atoms = [x-1 for x in lock_atoms]
+        shift = len(self.wt_nonbonded)
+        #lock sigmas
+        lock2 = [x+shift for x in lock_atoms]
+        #lock virtual weights
+        lock3 = [x+2*shift for x in lock_atoms]
+        #lock all wights of atoms with no virtuals by default plus convert back to zero indexing
+        lock_v = [x+2*shift-1 for x in self.all_insitu]
+        lock_atoms = lock_atoms+lock2+lock3+lock_v
+        lock_atoms = list(set(lock_atoms)) #remove dups
+        return sorted(lock_atoms)
+
     def get_net_charge(self, wt_nonbonded):
         return sum([x[0] for x in wt_nonbonded])
 
     def translate_concat_to_atomwise(self, params):
         '''
-        Helper to translate concatonated params used by scipy in to atomwise lists of params
+        Helper to translate concatenated params used by scipy in to atomwise lists of params
         :return:
         '''
         charge = params[:self.num_atoms]
@@ -94,7 +122,7 @@ class Optimize(object):
             if id in self.complex_sys[0].virt_atom_order:
                 param.extend([1.0])
             else:
-                param.extend([float('nan')])
+                param.extend([None])
         wt_excep = [{'id': x['id'], 'data': [x['data'][0]/ee, x['data'][1]/nm]} for x in wt_excep]
         return wt_nonbonded, wt_nonbonded_ids, wt_excep
 
@@ -204,12 +232,12 @@ class Optimize(object):
         all_params = copy.deepcopy(self.og_all_params)
 
         #constarints
-        con2 = {'type': 'ineq', 'fun': rmsd_change_con, 'args': [og_all_params, self.rmsd]}
-        if 'charge' in self.param:
-            con1 = {'type': 'eq', 'fun': net_charge_con, 'args': [self.net_charge, self.num_atoms]}
-            cons = [con1, con2]
-        else:
-            cons = [con2]
+        #con2 = {'type': 'ineq', 'fun': rmsd_change_con, 'args': [og_all_params, self.rmsd]}
+        #if 'charge' in self.param:
+        #    con1 = {'type': 'eq', 'fun': net_charge_con, 'args': [self.net_charge, self.num_atoms]}
+        #    cons = [con1, con2]
+        #else:
+        #    cons = [con2]
 
         #optimization loop
         ddg = 0.0
@@ -217,9 +245,9 @@ class Optimize(object):
             write_charges('charges_{}'.format(step), all_params)
             bounds = Optimize.get_bounds(self, all_params, 0.01, 0.5)
 
-            ###REMOVED BOUNDS###
+            ###REMOVED BOUNDS and CONSTRAINTS###
             sol = minimize(objective, all_params, options={'maxiter': 1}, jac=gradient,
-                           args=(all_params, self), constraints=cons)
+                           args=(all_params, self))
             #update params
             prev_params = all_params
             all_params = sol.x
@@ -227,9 +255,7 @@ class Optimize(object):
             #Translate to atomwise lists
             atomwise_params = Optimize.translate_concat_to_atomwise(self, all_params)
             exceptions = Optimize.get_exception_params(self, atomwise_params)
-            print(atomwise_params)
-            print(exceptions)
-            print(end)
+
 
 
             #Translate to mutants
@@ -273,56 +299,53 @@ class Optimize(object):
         mutant_systems = [[x, None, y, None] for x, y in zip(interpolated_params[0], interpolated_params[2])]
         return mutant_systems
 
-def build_opt_params(charges, sys_exception_params, sim):
-    #reorder exceptions
-    exception_order = [sim.complex_sys[0].exceptions_list, sim.solvent_sys[0].exceptions_list]
-    offset = [sim.complex_sys[0].offset, sim.solvent_sys[0].offset]
-    exception_params = [[], []]
-    #[[wild_type], [complex]], None id for ghost which is not used in optimization
-    for i, (sys_excep_order, sys_offset) in enumerate(zip(exception_order, offset)):
-        for j, mutant_parmas in enumerate(sys_exception_params):
-            map = {x['id']: x for x in mutant_parmas}
-            sys_exception_params[j] = [map[frozenset(int(x-sys_offset) for x in atom)] for atom in sys_excep_order]
-            exception_params[i].append(sys_exception_params[j])
-    for i, mut in enumerate(charges):
-        charges[i] = [{'id': x, 'data': y} for x, y in zip(sim.wt_nonbonded_ids, mut)]
-    complex_parameters = [[x, None, y, None] for x, y in zip(charges, exception_params[0])]
-    solvent_parameters = [[x, None, y, None] for x, y in zip(charges, exception_params[1])]
-    return complex_parameters, solvent_parameters
+    def process_mutant(self, parameters):
+        '''
+        :param parameters: List of charge, sigma and vs charges
+        :return:
+        '''
+        #translate to atomwise
+        atomwise_params = Optimize.translate_concat_to_atomwise(self, parameters)
+        #Build exceptions
+        exceptions = Optimize.get_exception_params(self, atomwise_params)
+
+        #translate to mutant format
+        mut, mut_vs = Optimize.translate_atomwise_to_mutant(self, atomwise_params, exceptions)
+
+        return [mut+self.unused_params, mut_vs]
+
+
+def gen_mutations_dicts(add=[], subtract=[], replace=[None], replace_insitu=[None]):
+    return {'add': add, 'subtract': subtract, 'replace': replace, 'replace_insitu': replace_insitu}
+
 
 def objective(peturbed_charges, current_charges, sim):
-    #translate to atomwise
-    peturbed_charges = Optimize.translate_concat_to_atomwise(sim, peturbed_charges)
-    current_charges = Optimize.translate_concat_to_atomwise(sim, current_charges)
-    #Build exceptions
-    peturbed_exceptions = Optimize.get_exception_params(sim, peturbed_charges)
-    current_exceptions = Optimize.get_exception_params(sim, current_charges)
+    systems = [peturbed_charges, current_charges]
+    mutants_systems = [sim.process_mutant(x) for x in systems]
 
-    #translate to mutant
-    #NEED discription of MUTANTS {replace [], insitu [] etc ...}
-    peturb_mut, peturbed_vs = Optimize.translate_atomwise_to_mutant(sim, peturbed_charges,
-                                                                                       peturbed_exceptions)
-    current_mut, current_vs = Optimize.translate_atomwise_to_mutant(sim, current_charges,
-                                                                                        current_exceptions)
+    #pull out params
+    mutants = [x[0] for x in mutants_systems]
+    #pull out virtual sites
+    virt_sites = [x[1] for x in mutants_systems]
 
     #build system with arb weights and vs
-    FSim.build(sim.complex_sys[0], const_prefactors=None, weights=None)
-    FSim.build(sim.solvent_sys[0], const_prefactors=None, weights=None)
+    FSim.build(sim.complex_sys[0], const_prefactors=virt_sites[1], weights=virt_sites[0])
+    FSim.build(sim.solvent_sys[0], const_prefactors=virt_sites[1], weights=virt_sites[0])
 
-    #build mutants, need mutation description
-    #HERE CURRENT
+    #in peturbed state all atoms must be replaced insitu except those with virtual sites which are replaced
+    mutations = [gen_mutations_dicts(replace=sim.all_virt, replace_insitu=sim.all_insitu)]
+    mutations.append(gen_mutations_dicts())
 
-    sys_charge_params = [peturbed_charges, current_charges]
-    sys_exception_params = [peturbed_exceptions, current_exceptions]
-    com_mut_param, sol_mut_param = build_opt_params(sys_charge_params, sys_exception_params, sim)
-
+    mutant_params = Mutants(mutants, mutations, sim.complex_sys[0], sim.solvent_sys[0])
 
     logger.debug('Computing Objective...')
-    complex_free_energy = FSim.treat_phase(sim.complex_sys[0], com_mut_param,
+    complex_free_energy = FSim.treat_phase(sim.complex_sys[0], mutant_params.complex_params,
                                            sim.complex_sys[1], sim.complex_sys[2], sim.num_frames)
-    solvent_free_energy = FSim.treat_phase(sim.solvent_sys[0], sol_mut_param,
+    solvent_free_energy = FSim.treat_phase(sim.solvent_sys[0], mutant_params.solvent_params,
                                            sim.solvent_sys[1], sim.solvent_sys[2], sim.num_frames)
     binding_free_energy = complex_free_energy[0] - solvent_free_energy[0]
+
+    print(binding_free_energy)
     return binding_free_energy/unit.kilocalories_per_mole
 
 
@@ -336,17 +359,56 @@ def gradient(peturbed_charges, current_charges, sim):
         h = [dh]
         logger.debug('Computing Jacobian with forward difference...')
     ddG = []
+
+    virtual_weights = peturbed_charges[-len(sim.wt_nonbonded):]
+    virtual_bool = [False for i in range(len(virtual_weights))]
+    peturbed_charges = peturbed_charges[0:2*len(sim.wt_nonbonded)]
     for diff in h:
         binding_free_energy = []
         mutant_parameters = []
         for i in range(len(peturbed_charges)):
-            mutant = copy.deepcopy(peturbed_charges)
-            mutant[i] = mutant[i] + diff
-            mutant_parameters.append(mutant)
+            # Skip systems which correspond to locked atoms
+            if i not in sim.lock_atoms:
+                mutant = copy.deepcopy(peturbed_charges)
+                mutant[i] = mutant[i] + diff
+                mutant_parameters.append(np.append(mutant, virtual_bool))
+        for i, weight in enumerate(virtual_weights):
+            shift = len(peturbed_charges)
+            i = i+shift
+            if i not in sim.lock_atoms:
+                assert virtual_weights is not None
+                mutant = copy.deepcopy(virtual_bool)
+                mutant[i-shift] = True
+                mutant_parameters.append(np.append(peturbed_charges, mutant))
 
-        # Remove systems which correspond to locked atoms
-        for x in reversed(sim.lock_atoms):
-            mutant_parameters.pop(x)
+        mutants_systems = [sim.process_mutant(x) for x in mutant_parameters]
+
+        # pull out params
+        mutants = [x[0] for x in mutants_systems]
+        # pull out virtual sites
+        virtual_bool = [x[1] for x in mutants_systems]
+
+        #make reference system
+        current_sys, curent_vs = sim.process_mutant(current_charges)
+
+        #remove nones
+        curent_vs = [x for x in curent_vs if x]
+        virt_sites = [vsw+diff for vsw in virtual_weights if vsw]
+        assert len(curent_vs) == len(virt_sites) == len(sim.all_virt)
+
+        ##CURRENT
+        #convert true and false to mutations
+        #which atoms are gunna be on dual or og topo
+
+        # build system with arb weights and vs
+        FSim.build(sim.complex_sys[0], const_prefactors=curent_vs, weights=virt_sites)
+        FSim.build(sim.solvent_sys[0], const_prefactors=curent_vs, weights=virt_sites)
+
+        # in peturbed state all atoms must be replaced insitu except those with virtual sites which are replaced
+        mutations = [gen_mutations_dicts(replace=sim.all_virt, replace_insitu=sim.all_insitu)]
+        mutations.append(gen_mutations_dicts())
+
+        mutant_params = Mutants(mutants, mutations, sim.complex_sys[0], sim.solvent_sys[0])
 
         mutant_exceptions = [Optimize.get_charge_product(sim, x) for x in mutant_parameters]
         mutant_parameters.append(current_charges)

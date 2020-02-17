@@ -91,7 +91,7 @@ class LigCharOpt(object):
                                      param=param, num_gpu=num_gpu, offset=self.complex_offset,
                                      opt=opt, exclude_dualtopo=exclude_dualtopo))
         self.complex_sys.append([complex_sim_dir + complex_name + '.dcd'])
-        self.complex_sys.append(complex_sim_dir + complex_name + '.pdb')
+        self.complex_sys.append(complex_sim_dir + complex_name + '_extended.pdb')
         if run_dynamics:
             if not os.path.isfile(self.complex_sys[1][0]):
                 self.complex_sys[1] = [complex_sim_dir + complex_name + '_gpu' + str(x) + '.dcd' for x in range(num_gpu)]
@@ -106,7 +106,7 @@ class LigCharOpt(object):
                                      param=param, num_gpu=num_gpu, offset=self.solvent_offset,
                                      opt=opt, exclude_dualtopo=exclude_dualtopo))
         self.solvent_sys.append([solvent_sim_dir + solvent_name + '.dcd'])
-        self.solvent_sys.append(solvent_sim_dir + solvent_name + '.pdb')
+        self.solvent_sys.append(solvent_sim_dir + solvent_name + '_extended.pdb')
         if run_dynamics:
             if not os.path.isfile(self.solvent_sys[1][0]):
                 self.solvent_sys[1] = [solvent_sim_dir + solvent_name + '_gpu' + str(x) + '.dcd' for x in range(num_gpu)]
