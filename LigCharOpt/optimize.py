@@ -20,6 +20,8 @@ e = unit.elementary_charges
 ee = e*e
 nm = unit.nanometer
 
+dummy = -8888
+
 class Optimize(object):
     def __init__(self, wt_ligand, complex_sys, solvent_sys, output_folder, num_frames, equi, name, steps,
                  param, central_diff, num_fep, rmsd, mol, lock_atoms):
@@ -67,17 +69,17 @@ class Optimize(object):
         Optimize.optimize(self, name)
 
     def make_lock_list(self, lock_atoms):
-        #shift from indexed by 1(mol2) to indexed by 0(python)
-        lock_atoms = [x-1 for x in lock_atoms]
+        # shift from indexed by 1(mol2) to indexed by 0(python)
+        lock_atoms = [x - 1 for x in lock_atoms]
         shift = len(self.wt_nonbonded)
-        #lock sigmas
-        lock2 = [x+shift for x in lock_atoms]
-        #lock virtual weights
-        lock3 = [x+2*shift for x in lock_atoms]
-        #lock all wights of atoms with no virtuals by default plus convert back to zero indexing
-        lock_v = [x+2*shift-1 for x in self.all_insitu]
-        lock_atoms = lock_atoms+lock2+lock3+lock_v
-        lock_atoms = list(set(lock_atoms)) #remove dups
+        # lock sigmas
+        lock2 = [x + shift for x in lock_atoms]
+        # lock virtual weights
+        lock3 = [x + 2 * shift for x in lock_atoms]
+        # lock all wights of atoms with no virtuals by default plus convert back to zero indexing
+        lock_v = [x + 2 * shift - 1 for x in self.all_insitu]
+        lock_atoms = lock_atoms + lock2 + lock3 + lock_v
+        lock_atoms = list(set(lock_atoms))  # remove dups
         return sorted(lock_atoms)
 
     def get_net_charge(self, wt_nonbonded):
@@ -122,7 +124,7 @@ class Optimize(object):
             if id in self.complex_sys[0].virt_atom_order:
                 param.extend([1.0])
             else:
-                param.extend([None])
+                param.extend([dummy])
         wt_excep = [{'id': x['id'], 'data': [x['data'][0]/ee, x['data'][1]/nm]} for x in wt_excep]
         return wt_nonbonded, wt_nonbonded_ids, wt_excep
 
@@ -214,7 +216,7 @@ class Optimize(object):
 
     ###NEEDS REWORKING###
     def get_bounds(self, current_charge, periter_change, total_change):
-        og_charge = [x[0] for x in self.wt_nonbonded]
+        og_charge = self.og_all_params
         change = [abs(x-y) for x, y in zip(current_charge, og_charge)]
         bnds = []
         for x, y in zip(change, current_charge):
@@ -232,22 +234,21 @@ class Optimize(object):
         all_params = copy.deepcopy(self.og_all_params)
 
         #constarints
-        #con2 = {'type': 'ineq', 'fun': rmsd_change_con, 'args': [og_all_params, self.rmsd]}
-        #if 'charge' in self.param:
-        #    con1 = {'type': 'eq', 'fun': net_charge_con, 'args': [self.net_charge, self.num_atoms]}
-        #    cons = [con1, con2]
-        #else:
-        #    cons = [con2]
+        con1 = {'type': 'eq', 'fun': net_charge_con, 'args': [self.net_charge, len(self.wt_nonbonded)]}
+        con2 = {'type': 'ineq', 'fun': rmsd_change_con, 'args': [og_all_params, self.rmsd]}
+        cons = [con1, con2]
 
         #optimization loop
         ddg = 0.0
         for step in range(self.steps):
             write_charges('charges_{}'.format(step), all_params)
-            bounds = Optimize.get_bounds(self, all_params, 0.01, 0.5)
+            bounds = Optimize.get_bounds(self, all_params, 0.03, 1.0)
 
-            ###REMOVED BOUNDS and CONSTRAINTS###
-            sol = minimize(objective, all_params, options={'maxiter': 1}, jac=gradient,
-                           args=(all_params, self))
+            sol = minimize(objective, all_params, bounds=bounds, options={'maxiter': 1}, jac=gradient,
+                           args=(all_params, self), constraints=cons)
+
+            #why maultiple jacobians now?
+            print(CURRENT)
             #update params
             prev_params = all_params
             all_params = sol.x
@@ -256,11 +257,10 @@ class Optimize(object):
             atomwise_params = Optimize.translate_concat_to_atomwise(self, all_params)
             exceptions = Optimize.get_exception_params(self, atomwise_params)
 
-
-
             #Translate to mutants
 
             com_mut_param, sol_mut_param = build_opt_params([charges], [exceptions], self)
+
 
             #run new dynamics with updated charges
             self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex',
@@ -328,9 +328,13 @@ def objective(peturbed_charges, current_charges, sim):
     #pull out virtual sites
     virt_sites = [x[1] for x in mutants_systems]
 
+    #remove weight not pertaining to atoms with vitual sites
+    current_vs = [x for x in virt_sites[1] if x != dummy]
+    peturbed_vs = [x for x in virt_sites[0] if x != dummy]
+
     #build system with arb weights and vs
-    FSim.build(sim.complex_sys[0], const_prefactors=virt_sites[1], weights=virt_sites[0])
-    FSim.build(sim.solvent_sys[0], const_prefactors=virt_sites[1], weights=virt_sites[0])
+    FSim.build(sim.complex_sys[0], const_prefactors=current_vs, weights=peturbed_vs)
+    FSim.build(sim.solvent_sys[0], const_prefactors=current_vs, weights=peturbed_vs)
 
     #in peturbed state all atoms must be replaced insitu except those with virtual sites which are replaced
     mutations = [gen_mutations_dicts(replace=sim.all_virt, replace_insitu=sim.all_insitu)]
@@ -361,7 +365,7 @@ def gradient(peturbed_charges, current_charges, sim):
     ddG = []
 
     virtual_weights = peturbed_charges[-len(sim.wt_nonbonded):]
-    virtual_bool = [False for i in range(len(virtual_weights))]
+    virtual_bool = np.array([False for i in range(len(virtual_weights))])
     peturbed_charges = peturbed_charges[0:2*len(sim.wt_nonbonded)]
     for diff in h:
         binding_free_energy = []
@@ -376,7 +380,6 @@ def gradient(peturbed_charges, current_charges, sim):
             shift = len(peturbed_charges)
             i = i+shift
             if i not in sim.lock_atoms:
-                assert virtual_weights is not None
                 mutant = copy.deepcopy(virtual_bool)
                 mutant[i-shift] = True
                 mutant_parameters.append(np.append(peturbed_charges, mutant))
@@ -389,35 +392,36 @@ def gradient(peturbed_charges, current_charges, sim):
         virtual_bool = [x[1] for x in mutants_systems]
 
         #make reference system
-        current_sys, curent_vs = sim.process_mutant(current_charges)
+        current_sys, current_vs = sim.process_mutant(current_charges)
 
-        #remove nones
-        curent_vs = [x for x in curent_vs if x]
-        virt_sites = [vsw+diff for vsw in virtual_weights if vsw]
-        assert len(curent_vs) == len(virt_sites) == len(sim.all_virt)
-
-        ##CURRENT
-        #convert true and false to mutations
-        #which atoms are gunna be on dual or og topo
+        #Reduce to only wights which pertain to virtual sites
+        current_vs = [x for x in current_vs if x != dummy]
+        # add finite diff
+        virt_sites = [vsw+diff for vsw in virtual_weights if vsw != dummy]
+        assert len(current_vs) == len(virt_sites) == len(sim.all_virt)
 
         # build system with arb weights and vs
-        FSim.build(sim.complex_sys[0], const_prefactors=curent_vs, weights=virt_sites)
-        FSim.build(sim.solvent_sys[0], const_prefactors=curent_vs, weights=virt_sites)
+        FSim.build(sim.complex_sys[0], const_prefactors=current_vs, weights=virt_sites)
+        FSim.build(sim.solvent_sys[0], const_prefactors=current_vs, weights=virt_sites)
 
-        # in peturbed state all atoms must be replaced insitu except those with virtual sites which are replaced
-        mutations = [gen_mutations_dicts(replace=sim.all_virt, replace_insitu=sim.all_insitu)]
+        # convert true and false to mutations, this determines which atoms are going to be on dual or og topo.
+        # Also converting to indexing by one to match mol2 file
+        replace = [[x+1 for (x, y) in zip(sim.wt_nonbonded_ids,y1) if y] for y1 in virtual_bool]
+        virtual_bool = [[not i for i in x] for x in virtual_bool]
+        replace_insitu = [[x+1 for (x, y) in zip(sim.wt_nonbonded_ids,y1) if y] for y1 in virtual_bool]
+
+        # Generate dictionaries to discribe mutations
+        mutations = [gen_mutations_dicts(replace=x, replace_insitu=y) for (x, y) in zip(replace, replace_insitu)]
+        #Append wt system to end to be used as central reference state
+        mutants.append(current_sys)
         mutations.append(gen_mutations_dicts())
 
         mutant_params = Mutants(mutants, mutations, sim.complex_sys[0], sim.solvent_sys[0])
 
-        mutant_exceptions = [Optimize.get_charge_product(sim, x) for x in mutant_parameters]
-        mutant_parameters.append(current_charges)
-        mutant_exceptions.append(Optimize.get_charge_product(sim, current_charges))
-        com_mut_param, sol_mut_param = build_opt_params(mutant_parameters, mutant_exceptions, sim)
-        complex_free_energy = FSim.treat_phase(sim.complex_sys[0], com_mut_param,
-                                               sim.complex_sys[1], sim.complex_sys[2], num_frames)
-        solvent_free_energy = FSim.treat_phase(sim.solvent_sys[0], sol_mut_param,
-                                               sim.solvent_sys[1], sim.solvent_sys[2], num_frames)
+        complex_free_energy = FSim.treat_phase(sim.complex_sys[0], mutant_params.complex_params,
+                                               sim.complex_sys[1], sim.complex_sys[2], sim.num_frames)
+        solvent_free_energy = FSim.treat_phase(sim.solvent_sys[0], mutant_params.solvent_params,
+                                               sim.solvent_sys[1], sim.solvent_sys[2], sim.num_frames)
 
         for sol, com in zip(solvent_free_energy, complex_free_energy):
             free_energy = com - sol
@@ -442,7 +446,7 @@ def gradient(peturbed_charges, current_charges, sim):
 
 def net_charge_con(current_charge, net_charge, num_charges):
     sum_ = net_charge
-    for charge in current_charge[:num_charges]:
+    for charge in current_charge[0:num_charges]:
         sum_ = sum_ - charge
     return sum_
 
