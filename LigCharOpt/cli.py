@@ -114,6 +114,7 @@ def main(argv=None):
 
     if args['--param']:
         param = str(args['--param'])
+        param = param.replace(" ", "")
         param = param.split(',')
         accepted_param = ['charge', 'sigma', 'vdw', 'weight', 'all']
         for x in param:
@@ -122,13 +123,13 @@ def main(argv=None):
     else:
         param = ['all']
 
-    if param == 'charge':
+    if 'charge' in param:
         logger.debug('Mutating ligand charges only...')
-    elif param == 'vdw':
+    elif 'vdw' in param:
         logger.debug('Mutating ligand VDW only...')
-    elif param == 'sigma':
+    elif 'sigma' in param:
         logger.debug('Mutating ligand sigmas only...')
-    elif param == 'weight':
+    elif 'weight' in param:
         logger.debug('Mutating ligand weights only...')
     else:
         logger.debug('Mutating all ligand parameters...')
