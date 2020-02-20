@@ -170,13 +170,13 @@ class Optimize(object):
         """
 
         if name == 'grad_decent_ssp':
-            opt_params, ddg_fs = Optimize.grad_decent_spp(self)
+            opt_params, ddg_fs = Optimize.grad_decent(self, max_step_size=0.03, linesearch='ssp')
 
         elif name == 'grad_decent_fep':
-            raise NotImplemented()
+            opt_params, ddg_fs = Optimize.grad_decent(self, max_step_size=0.3, linesearch='fep')
 
         elif name == 'scipy':
-            raise NotImplemented
+            raise NotImplemented()
 
         og_all_params = self.og_all_params
         param_diff = [x-y for x,y in zip(og_all_params, opt_params)]
@@ -189,23 +189,27 @@ class Optimize(object):
 
         for replica in range(self.num_fep):
             logger.debug('Replica {}/{}'.format(replica+1, self.num_fep))
-            ddg_fep, ddg_error = Optimize.run_fep(self, self.og_all_params, opt_params, 20000)
+            ddg_fep, ddg_error = Optimize.run_fep(self, self.og_all_params, opt_params, 20000, 50, 12)
             logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
 
         if name != 'FEP_only':
             logger.debug('ddG SSP = {}'.format(ddg_fs))
 
-    def run_fep(self, start_params, end_params, n_steps):
+    def run_fep(self, start_params, end_params, n_steps, n_iterations, windows, return_dg_matrix=False):
 
         mutant = [self.process_mutant(end_params),  self.process_mutant(start_params)]
         mutation = [gen_mutations_dicts(), gen_mutations_dicts()]
 
         mutant_params = Mutants(mutant, mutation, self.complex_sys[0], self.solvent_sys[0])
 
-        complex_dg, complex_error = self.complex_sys[0].run_parallel_fep(mutant_params, 0, 0, n_steps,
-                                                                         n_iterations=50, windows=12)
-        solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(mutant_params, 1, 0, n_steps,
-                                                                         n_iterations=1, windows=12)
+        complex_dg, complex_error = self.complex_sys[0].run_parallel_fep(mutant_params, 0, 0, n_steps, n_iterations,
+                                                                         windows, return_dg_matrix=return_dg_matrix)
+        solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(mutant_params, 1, 0, n_steps, n_iterations,
+                                                                         windows, return_dg_matrix=return_dg_matrix)
+
+        if return_dg_matrix:
+            return complex_dg, complex_error, solvent_dg, solvent_error
+
         ddg_fep = complex_dg - solvent_dg
         ddg_error = (complex_error ** 2 + solvent_error ** 2) ** 0.5
 
@@ -218,28 +222,17 @@ class Optimize(object):
 
         mutant_params = Mutants(mutant, mutation, self.complex_sys[0], self.solvent_sys[0])
 
-        #run dynamics on built system passing arb q and sigma, is there a better way to apply that just passing
-        #non bonded here?
+        #run dynamics on built system passing arb q and sigma
         self.complex_sys[1] = self.complex_sys[0].run_parallel_dynamics(self.output_folder, 'complex',
                                                                         self.num_frames, self.equi,
                                                                         mutant_params.complex_params[0])
         self.solvent_sys[1] = self.solvent_sys[0].run_parallel_dynamics(self.output_folder, 'solvent',
                                                                         self.num_frames, self.equi,
                                                                         mutant_params.solvent_params[0])
-    '''
-    TODO
-    multi permu**
-    sigma only refactor use line search
-    #Can use a line search effeciently with full FEP if we abandon vs optimization
-    #because can use many windows without rebuilding
-    '''
 
-    #Can use a line search effeciently with full FEP if we abandon vs optimization
-    #because can use many windows without rebuilding
-    def grad_decent_spp(self):
+    def grad_decent(self, max_step_size, linesearch):
         all_params = copy.deepcopy(self.og_all_params)
         step = 0
-        max_step_size = 0.05
         damp = 0.85
         #optimization loop
         ddg = 0.0
@@ -252,24 +245,46 @@ class Optimize(object):
             constrained_step = constrain_net_charge(grad, len(self.wt_nonbonded))
             norm_const_step = constrained_step / np.linalg.norm(constrained_step)
 
-            count = 0
-            #Line search
-            forward_ddg = 1.0
-            while forward_ddg > 0.0:
-                count += 1
-                if count > 10:
-                    raise ValueError('Line search failed with ddg {}'.format(forward_ddg))
-                all_params_plus_one = all_params - step_size * norm_const_step
-                logger.debug('Computing objective with step size {}...'.format(step_size))
-                forward_ddg = objective(all_params_plus_one, all_params, self)
-                step_size = step_size * damp
+            #Line search using spp, fast per step but can't step far in param space with out losing accuracy
+            if linesearch == 'ssp':
+                count = 0
+                forward_ddg = 1.0
+                while forward_ddg > 0.0:
+                    count += 1
+                    if count > 10:
+                        raise ValueError('Line search failed with ddg {}'.format(forward_ddg))
+                    all_params_plus_one = all_params - step_size * norm_const_step
+                    logger.debug('Computing objective with step size {}...'.format(step_size))
+                    forward_ddg = objective(all_params_plus_one, all_params, self)
+                    step_size = step_size * damp
 
-            #Run some dynamics with new charges
-            logger.debug('Computing reverse leg of accepted step...')
-            self.run_dynamics(all_params_plus_one)
-            reverse_ddg = -1 * objective(all_params, all_params_plus_one, self)
-            logger.debug('Forward {} and reverse {} steps'.format(forward_ddg, reverse_ddg))
-            ddg += (forward_ddg + reverse_ddg) / 2.0
+                # Run some dynamics with new charges
+                logger.debug('Computing reverse leg of accepted step...')
+                self.run_dynamics(all_params_plus_one)
+                reverse_ddg = -1 * objective(all_params, all_params_plus_one, self)
+                logger.debug('Forward {} and reverse {} steps'.format(forward_ddg, reverse_ddg))
+                ddg += (forward_ddg + reverse_ddg) / 2.0
+
+            # Line search using fep, slower per step but could in theory step much futher in param space than ssp.
+            elif linesearch == 'fep':
+                windows = 12
+                all_params_plus_one = all_params - step_size * norm_const_step
+                c_dg, c_err, s_dg, s_err = self.run_fep(all_params, all_params_plus_one, 500, 50, windows, True)
+                ddg_fep = c_dg - s_dg
+                line = ddg_fep[0]
+                best_window = list(line).index(min(line))
+
+                logger.debug('Line search found best window {} from line {}'.format(best_window, line))
+                # Get params corresponding to best window
+                all_params_plus_one = [a + ((b - a) / (windows - 1)) * (best_window) for a, b in
+                                    zip(all_params, all_params_plus_one)]
+                ddg += line[best_window]
+
+                logger.debug('Computing dynamics for next step...')
+                #dont need dynamics for last fep optimisation iteration
+                if step != self.steps:
+                    self.run_dynamics(all_params_plus_one)
+
             logger.debug(
                 "Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step + 1, self.steps))
             all_params = all_params_plus_one
