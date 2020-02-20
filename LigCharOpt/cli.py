@@ -96,7 +96,7 @@ def main(argv=None):
         equi = int(args['--equi'])
     else:
         equi = 100
-        logger.debug(msg.format('Number of equlibriation steps', equi))
+        logger.debug(msg.format('Number of equilibration steps', equi))
 
     if args['--net_charge']:
         net_charge = int(args['--net_charge'])
@@ -114,18 +114,23 @@ def main(argv=None):
 
     if args['--param']:
         param = str(args['--param'])
-        accepted_param = ['charge', 'sigma', 'vdw', 'all']
-        if param not in accepted_param:
-            raise ValueError('param selected not in accepted params: {}'.format(accepted_param))
+        param = param.replace(" ", "")
+        param = param.split(',')
+        accepted_param = ['charge', 'sigma', 'vdw', 'weight', 'all']
+        for x in param:
+            if x not in accepted_param:
+                raise ValueError('param selected not in accepted params: {}'.format(accepted_param))
     else:
-        param = 'all'
+        param = ['all']
 
-    if param == 'charge':
+    if 'charge' in param:
         logger.debug('Mutating ligand charges only...')
-    elif param == 'vdw':
+    elif 'vdw' in param:
         logger.debug('Mutating ligand VDW only...')
-    elif param == 'sigma':
+    elif 'sigma' in param:
         logger.debug('Mutating ligand sigmas only...')
+    elif 'weight' in param:
+        logger.debug('Mutating ligand weights only...')
     else:
         logger.debug('Mutating all ligand parameters...')
         
@@ -151,13 +156,13 @@ def main(argv=None):
         else:
             central_diff = False
             logger.debug(msg.format('finite difference method', 'forward difference'))
-        optimizer_names = ['scipy', 'FEP_only', 'SSP_convergence_test', 'FEP_convergence_test', 'FS_test']
+        optimizer_names = ['scipy', 'FEP_only', 'grad_decent_ssp', 'grad_decent_fep']
         if args['--opt_name']:
             opt_name = args['--opt_name']
             if opt_name not in optimizer_names:
                 raise ValueError('Unknown optimizer specified chose from {}'.format(optimizer_names))
         else:
-            opt_name = 'scipy'
+            opt_name = 'grad_decent_ssp'
             logger.debug(msg.format('optimization method', opt_name))
         if args['--opt_steps']:
             opt_steps = int(args['--opt_steps'])
