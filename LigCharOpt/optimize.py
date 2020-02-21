@@ -233,9 +233,10 @@ class Optimize(object):
     def grad_decent(self, max_step_size, linesearch):
         all_params = copy.deepcopy(self.og_all_params)
         step = 0
-        damp = 0.85
-        #optimization loop
+        damp = 0.5
         ddg = 0.0
+        converged = False
+        # optimization loop
         while step < self.steps:
             step_size = max_step_size
             write_charges('params_{}'.format(step), all_params)
@@ -245,25 +246,31 @@ class Optimize(object):
             constrained_step = constrain_net_charge(grad, len(self.wt_nonbonded))
             norm_const_step = constrained_step / np.linalg.norm(constrained_step)
 
-            #Line search using spp, fast per step but can't step far in param space with out losing accuracy
+            # Line search using spp, fast per step but can't step far in param space with out losing accuracy
             if linesearch == 'ssp':
                 count = 0
+                max_count = 10
                 forward_ddg = 1.0
                 while forward_ddg > 0.0:
-                    count += 1
-                    if count > 10:
-                        raise ValueError('Line search failed with ddg {}'.format(forward_ddg))
+                    if count > max_count:
+                        # If cant find a down hill direction must be at minimum within convergance = max_step_size*(damp**max_count)
+                        logger.debug('Converged for step {}'.format(step))
+                        converged = True
+                        break
                     all_params_plus_one = all_params - step_size * norm_const_step
                     logger.debug('Computing objective with step size {}...'.format(step_size))
                     forward_ddg = objective(all_params_plus_one, all_params, self)
+                    count += 1
                     step_size = step_size * damp
 
-                # Run some dynamics with new charges
-                logger.debug('Computing reverse leg of accepted step...')
-                self.run_dynamics(all_params_plus_one)
-                reverse_ddg = -1 * objective(all_params, all_params_plus_one, self)
-                logger.debug('Forward {} and reverse {} steps'.format(forward_ddg, reverse_ddg))
-                ddg += (forward_ddg + reverse_ddg) / 2.0
+                # if converged dont need reverse step
+                if not converged:
+                    # Run some dynamics with new charges
+                    logger.debug('Computing reverse leg of accepted step...')
+                    self.run_dynamics(all_params_plus_one)
+                    reverse_ddg = -1 * objective(all_params, all_params_plus_one, self)
+                    logger.debug('Forward {} and reverse {} steps'.format(forward_ddg, reverse_ddg))
+                    ddg += (forward_ddg + reverse_ddg) / 2.0
 
             # Line search using fep, slower per step but could in theory step much futher in param space than ssp.
             elif linesearch == 'fep':
@@ -273,23 +280,32 @@ class Optimize(object):
                 ddg_fep = c_dg - s_dg
                 line = ddg_fep[0]
                 best_window = list(line).index(min(line))
-
                 logger.debug('Line search found best window {} from line {}'.format(best_window, line))
                 # Get params corresponding to best window
                 all_params_plus_one = [a + ((b - a) / (windows - 1)) * (best_window) for a, b in
                                     zip(all_params, all_params_plus_one)]
-                ddg += line[best_window]
+                if line[best_window] > 0:
+                    #Failed to find down hill must be at minimum within convergance = max_step_size/windows
+                    logger.debug('Converged for step {}'.format(step))
+                    converged = True
+                else:
+                    ddg += line[best_window]
 
-                logger.debug('Computing dynamics for next step...')
-                #dont need dynamics for last fep optimisation iteration
-                if step != self.steps:
+                # dont need dynamics for last fep optimisation iteration
+                if not converged:
+                    logger.debug('Computing dynamics for next step...')
                     self.run_dynamics(all_params_plus_one)
 
-            logger.debug(
-                "Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step + 1, self.steps))
-            all_params = all_params_plus_one
-            write_charges('params_opt', all_params)
-            step += 1
+            if not converged:
+                logger.debug(
+                    "Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step + 1, self.steps))
+                all_params = all_params_plus_one
+                step += 1
+            else:
+                step = self.steps
+                logger.debug(
+                    "Final binding free energy improvement {0}".format(ddg))
+                write_charges('params_opt', all_params)
 
         return list(all_params), ddg
 
