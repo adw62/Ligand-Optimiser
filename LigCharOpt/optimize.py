@@ -276,7 +276,7 @@ class Optimize(object):
             elif linesearch == 'fep':
                 windows = 12
                 all_params_plus_one = all_params - step_size * norm_const_step
-                c_dg, c_err, s_dg, s_err = self.run_fep(all_params, all_params_plus_one, 500, 50, windows, True)
+                c_dg, c_err, s_dg, s_err = self.run_fep(all_params, all_params_plus_one, 1000, 50, windows, True)
                 ddg_fep = c_dg - s_dg
                 line = ddg_fep[0]
                 best_window = list(line).index(min(line))
@@ -284,7 +284,7 @@ class Optimize(object):
                 # Get params corresponding to best window
                 all_params_plus_one = [a + ((b - a) / (windows - 1)) * (best_window) for a, b in
                                     zip(all_params, all_params_plus_one)]
-                if line[best_window] > 0:
+                if line[best_window] >= 0:
                     #Failed to find down hill must be at minimum within convergance = max_step_size/windows
                     logger.debug('Converged for step {}'.format(step))
                     converged = True
