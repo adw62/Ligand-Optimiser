@@ -116,12 +116,12 @@ def main(argv=None):
         param = str(args['--param'])
         param = param.replace(" ", "")
         param = param.split(',')
-        accepted_param = ['charge', 'sigma', 'vdw', 'weight', 'all']
+        accepted_param = ['charge', 'sigma']
         for x in param:
             if x not in accepted_param:
                 raise ValueError('param selected not in accepted params: {}'.format(accepted_param))
     else:
-        param = ['all']
+        param = ['charge']
 
     if 'charge' in param:
         logger.debug('Mutating ligand charges only...')

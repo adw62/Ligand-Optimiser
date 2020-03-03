@@ -44,9 +44,7 @@ class Optimize(object):
         self.excep_scaling = Optimize.get_exception_scaling(self)
 
         self.lock_atoms = Optimize.make_lock_list(self, lock_atoms)
-
-        if 'charge' in self.param:
-            self.net_charge = Optimize.get_net_charge(self, self.wt_nonbonded)
+        self.net_charge = Optimize.get_net_charge(self, self.wt_nonbonded)
 
         # concat all params
         og_charges = [x[0] for x in self.wt_nonbonded]
@@ -176,7 +174,7 @@ class Optimize(object):
             opt_params, ddg_fs = Optimize.grad_decent(self, max_step_size=0.3, linesearch='fep')
 
         elif name == 'scipy':
-            raise NotImplemented()
+            opt_params, ddg_fs = Optimize.scipy(self)
 
         og_all_params = self.og_all_params
         param_diff = [x-y for x,y in zip(og_all_params, opt_params)]
@@ -208,7 +206,9 @@ class Optimize(object):
                                                                          windows, return_dg_matrix=return_dg_matrix)
 
         if return_dg_matrix:
-            return complex_dg, complex_error, solvent_dg, solvent_error
+            #remove kcal/mol units
+            return complex_dg/unit.kilocalories_per_mole, complex_error/unit.kilocalories_per_mole,\
+                   solvent_dg/unit.kilocalories_per_mole, solvent_error/unit.kilocalories_per_mole
 
         ddg_fep = complex_dg - solvent_dg
         ddg_error = (complex_error ** 2 + solvent_error ** 2) ** 0.5
@@ -230,6 +230,48 @@ class Optimize(object):
                                                                         self.num_frames, self.equi,
                                                                         mutant_params.solvent_params[0])
 
+    def get_bounds(self, current_params, periter_change, total_change):
+        change = [abs(x-y) for x, y in zip(current_params, self.og_all_params)]
+        bnds = []
+        for x, y in zip(change, current_params):
+            if x >= total_change:
+                bnds.append((y-periter_change, y))
+            elif x <= -total_change:
+                bnds.append((y, y+periter_change))
+            else:
+                bnds.append((y-periter_change, y+periter_change))
+        return bnds
+
+    def scipy(self):
+        all_params = copy.deepcopy(self.og_all_params)
+        con1 = {'type': 'eq', 'fun': constrain_net_charge_x, 'args': [len(self.wt_nonbonded), self.net_charge]}
+        con2 = {'type': 'ineq', 'fun': rmsd_change_con, 'args': [self.og_all_params, self.rmsd]}
+        cons = [con1, con2]
+        step = 0
+        ddg = 0.0
+        while step < self.steps:
+            write_charges('params_{}'.format(step), all_params)
+            bounds = Optimize.get_bounds(self, all_params, 0.01, 0.5)
+            sol = minimize(objective, all_params, bounds=bounds, options={'maxiter': 1}, jac=gradient,
+                           args=(all_params, self), constraints=cons)
+            all_params_plus_one = sol.x
+            forward_ddg = sol.fun
+            logger.debug('Computing reverse leg of accepted step...')
+            self.run_dynamics(all_params_plus_one)
+            reverse_ddg = -1 * objective(all_params, all_params_plus_one, self)
+            logger.debug('Forward {} and reverse {} steps'.format(forward_ddg, reverse_ddg))
+            ddg += (forward_ddg + reverse_ddg) / 2.0
+            logger.debug(sol)
+            logger.debug("Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step+1, self.steps))
+
+            all_params = all_params_plus_one
+            step += 1
+
+        logger.debug("Final binding free energy improvement {0}".format(ddg))
+        write_charges('params_opt', all_params)
+
+        return list(all_params), ddg
+
     def grad_decent(self, max_step_size, linesearch):
         all_params = copy.deepcopy(self.og_all_params)
         step = 0
@@ -240,13 +282,13 @@ class Optimize(object):
         while step < self.steps:
             step_size = max_step_size
             write_charges('params_{}'.format(step), all_params)
-            grad = gradient(all_params, self)
+            grad = gradient(all_params, 1, self) #1 here is a dummy variable
             write_charges('gradient_{}'.format(step), grad)
             grad = np.array(grad)
             constrained_step = constrain_net_charge(grad, len(self.wt_nonbonded))
             norm_const_step = constrained_step / np.linalg.norm(constrained_step)
 
-            # Line search using spp, fast per step but can't step far in param space with out losing accuracy
+            # Line search using spp, fast per step but can't step far in param space without losing accuracy
             if linesearch == 'ssp':
                 count = 0
                 max_count = 10
@@ -345,7 +387,7 @@ def objective(peturbed_params, current_params, sim):
     return binding_free_energy/unit.kilocalories_per_mole
 
 
-def gradient(all_params, sim):
+def gradient(all_params, dummy, sim):
     num_frames = int(sim.num_frames)
     dh = 1.5e-04
     if sim.central:
@@ -404,11 +446,25 @@ def gradient(all_params, sim):
     return binding_free_energy
 
 def constrain_net_charge(delta, num_charges):
+    print(num_charges)
     delta_q = delta[:num_charges]
     delta_not_q = delta[num_charges:]
     val = np.sum(delta_q) / len(delta_q)
     delta_q = [x - val for x in delta_q]
     return np.append(np.array(delta_q), delta_not_q)
+
+def constrain_net_charge_x(x, num_charges, net_charge):
+    x_q = x[:num_charges]
+    sum_ = net_charge
+    for charge in x_q:
+        sum_ = sum_ - charge
+    return sum_
+
+
+def rmsd_change_con(current_charge, og_charge, rmsd):
+    maximum_rmsd = rmsd
+    rmsd = (np.average([(x - y) ** 2 for x, y in zip(current_charge, og_charge)])) ** 0.5
+    return maximum_rmsd - rmsd
 
 
 def write_charges(name, charges):
