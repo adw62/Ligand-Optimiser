@@ -171,19 +171,24 @@ class Optimize(object):
             opt_params, ddg_fs = Optimize.grad_decent(self, max_step_size=0.03, linesearch='ssp')
 
         elif name == 'grad_decent_fep':
-            opt_params, ddg_fs = Optimize.grad_decent(self, max_step_size=0.3, linesearch='fep')
+            opt_params, ddg_fs = Optimize.grad_decent(self, max_step_size=0.1, linesearch='fep')
 
         elif name == 'scipy':
             opt_params, ddg_fs = Optimize.scipy(self)
 
         og_all_params = self.og_all_params
-        param_diff = [x-y for x,y in zip(og_all_params, opt_params)]
+        #scale for ploting partial charge difference
+        scale = 10
+        param_diff = [x-y*scale for x,y in zip(og_all_params, opt_params)]
+
+        logger.debug('Writing mol2 files with parameter differences')
         if 'sigma' not in self.param:
-            Mol2.write_mol2(self.mol, './', 'opt_lig', charges=param_diff[:len(self.wt_nonbonded)])
+            Mol2.write_mol2(self.mol, './', 'opt_lig_charge', charges=param_diff[:len(self.wt_nonbonded)])
         elif 'charge' not in self.param:
-            Mol2.write_mol2(self.mol, './', 'opt_lig', charges=param_diff[len(self.wt_nonbonded):])
+            Mol2.write_mol2(self.mol, './', 'opt_lig_sigma', charges=param_diff[len(self.wt_nonbonded):])
         else:
-            logger.debug('Can not write mol2 file containing both sigma and charge params. Please use param_opt file to create your own')
+            Mol2.write_mol2(self.mol, './', 'opt_lig_sigma', charges=param_diff[len(self.wt_nonbonded):])
+            Mol2.write_mol2(self.mol, './', 'opt_lig_charge', charges=param_diff[:len(self.wt_nonbonded)])
 
         for replica in range(self.num_fep):
             logger.debug('Replica {}/{}'.format(replica+1, self.num_fep))
@@ -191,7 +196,7 @@ class Optimize(object):
             logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
 
         if name != 'FEP_only':
-            logger.debug('ddG SSP = {}'.format(ddg_fs))
+            logger.debug('ddG opt = {}'.format(ddg_fs))
 
     def run_fep(self, start_params, end_params, n_steps, n_iterations, windows, return_dg_matrix=False):
 
@@ -278,15 +283,18 @@ class Optimize(object):
         damp = 0.5
         ddg = 0.0
         converged = False
+        extend_line = False
         # optimization loop
         while step < self.steps:
             step_size = max_step_size
-            write_charges('params_{}'.format(step), all_params)
-            grad = gradient(all_params, 1, self) #1 here is a dummy variable
-            write_charges('gradient_{}'.format(step), grad)
-            grad = np.array(grad)
-            constrained_step = constrain_net_charge(grad, len(self.wt_nonbonded))
-            norm_const_step = constrained_step / np.linalg.norm(constrained_step)
+            if not extend_line:
+                #if not extending line search recalculate gradient to change search direction
+                write_charges('params_{}'.format(step), all_params)
+                grad = gradient(all_params, 1, self) #1 here is a dummy variable
+                write_charges('gradient_{}'.format(step), grad)
+                grad = np.array(grad)
+                constrained_step = constrain_net_charge(grad, len(self.wt_nonbonded))
+                norm_const_step = constrained_step / np.linalg.norm(constrained_step)
 
             # Line search using spp, fast per step but can't step far in param space without losing accuracy
             if linesearch == 'ssp':
@@ -296,7 +304,7 @@ class Optimize(object):
                 while forward_ddg > 0.0:
                     if count > max_count:
                         # If cant find a down hill direction must be at minimum within convergance = max_step_size*(damp**max_count)
-                        logger.debug('Converged for step {}'.format(step))
+                        logger.debug('Converged for step {} within tolerance {}'.format(step, max_step_size*(damp**max_count)))
                         converged = True
                         break
                     all_params_plus_one = all_params - step_size * norm_const_step
@@ -317,36 +325,44 @@ class Optimize(object):
             # Line search using fep, slower per step but could in theory step much futher in param space than ssp.
             elif linesearch == 'fep':
                 windows = 12
+
                 all_params_plus_one = all_params - step_size * norm_const_step
                 c_dg, c_err, s_dg, s_err = self.run_fep(all_params, all_params_plus_one, 1000, 50, windows, True)
                 ddg_fep = c_dg - s_dg
                 line = ddg_fep[0]
                 best_window = list(line).index(min(line))
                 logger.debug('Line search found best window {} from line {}'.format(best_window, line))
+                if best_window == len(line)-1:
+                    logger.debug('Last window was best window, extending line search')
+                    extend_line = True
+                else:
+                    extend_line = False
+
                 # Get params corresponding to best window
                 all_params_plus_one = [a + ((b - a) / (windows - 1)) * (best_window) for a, b in
                                     zip(all_params, all_params_plus_one)]
                 if line[best_window] >= 0:
                     #Failed to find down hill must be at minimum within convergance = max_step_size/windows
-                    logger.debug('Converged for step {}'.format(step))
+                    logger.debug('Converged for step {} within tolorance {}'.format(step, max_step_size/windows))
                     converged = True
                 else:
                     ddg += line[best_window]
 
-                # dont need dynamics for last fep optimisation iteration
-                if not converged:
+                # dont need dynamics for last fep optimisation iteration or if extending successful line search
+                if not converged and not extend_line:
                     logger.debug('Computing dynamics for next step...')
                     self.run_dynamics(all_params_plus_one)
 
             if not converged:
                 logger.debug(
-                    "Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step + 1, self.steps))
+                    "Current binding free energy improvement {0} kcal/mol for step {1}/{2}".format(ddg, step + 1, self.steps))
                 all_params = all_params_plus_one
-                step += 1
+                if not extend_line:
+                    step += 1
             else:
                 step = self.steps
                 logger.debug(
-                    "Final binding free energy improvement {0}".format(ddg))
+                    "Final binding free energy improvement {0} kcal/mol".format(ddg))
                 write_charges('params_opt', all_params)
 
         return list(all_params), ddg
@@ -446,7 +462,6 @@ def gradient(all_params, dummy, sim):
     return binding_free_energy
 
 def constrain_net_charge(delta, num_charges):
-    print(num_charges)
     delta_q = delta[:num_charges]
     delta_not_q = delta[num_charges:]
     val = np.sum(delta_q) / len(delta_q)
