@@ -168,13 +168,13 @@ class Optimize(object):
         """
 
         if name == 'grad_decent_ssp':
-            opt_params, ddg_fs = Optimize.grad_decent(self, max_step_size=0.03, linesearch='ssp')
+            opt_params, ddg_opt, ddg_error = Optimize.grad_decent(self, max_step_size=0.03, linesearch='ssp')
 
         elif name == 'grad_decent_fep':
-            opt_params, ddg_fs = Optimize.grad_decent(self, max_step_size=0.1, linesearch='fep')
+            opt_params, ddg_opt, ddg_error = Optimize.grad_decent(self, max_step_size=0.1, linesearch='fep')
 
         elif name == 'scipy':
-            opt_params, ddg_fs = Optimize.scipy(self)
+            opt_params, ddg_opt = Optimize.scipy(self)
 
         og_all_params = self.og_all_params
         #scale for ploting partial charge difference
@@ -192,11 +192,14 @@ class Optimize(object):
 
         for replica in range(self.num_fep):
             logger.debug('Replica {}/{}'.format(replica+1, self.num_fep))
-            ddg_fep, ddg_error = Optimize.run_fep(self, self.og_all_params, opt_params, 20000, 50, 12)
+            ddg_fep, ddg_error = Optimize.run_fep(self, self.og_all_params, opt_params, 2500, 500, 12)
             logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
 
         if name != 'FEP_only':
-            logger.debug('ddG opt = {}'.format(ddg_fs))
+            if name == 'grad_decent_fep':
+                logger.debug('ddG opt = {0} +- {1}'.format(ddg_opt, ddg_error))
+            else:
+                logger.debug('ddG opt = {0}'.format(ddg_opt))
 
     def run_fep(self, start_params, end_params, n_steps, n_iterations, windows, return_dg_matrix=False):
 
@@ -282,6 +285,7 @@ class Optimize(object):
         step = 0
         damp = 0.5
         ddg = 0.0
+        ddg_error = 0.0
         converged = False
         extend_line = False
         # optimization loop
@@ -322,16 +326,28 @@ class Optimize(object):
                     logger.debug('Forward {} and reverse {} steps'.format(forward_ddg, reverse_ddg))
                     ddg += (forward_ddg + reverse_ddg) / 2.0
 
-            # Line search using fep, slower per step but could in theory step much futher in param space than ssp.
+            # Line search using fep, slower per step but could in theory step much further in param space than ssp.
             elif linesearch == 'fep':
-                windows = 12
-
+                windows = 5
                 all_params_plus_one = all_params - step_size * norm_const_step
-                c_dg, c_err, s_dg, s_err = self.run_fep(all_params, all_params_plus_one, 1000, 50, windows, True)
+                c_dg, c_err, s_dg, s_err = self.run_fep(all_params, all_params_plus_one, 2500, 100, windows, True)
                 ddg_fep = c_dg - s_dg
+                ddg_fep_err = (c_err ** 2 + s_err ** 2) ** 0.5
                 line = ddg_fep[0]
+                line_err = ddg_fep_err[0]
                 best_window = list(line).index(min(line))
                 logger.debug('Line search found best window {} from line {}'.format(best_window, line))
+
+                #Check if converged because 0th window was the best unless we are currently extending line search
+                if best_window == 0 and not extend_line:
+                    #Failed to find down hill must be at minimum within convergance = max_step_size/windows
+                    logger.debug('Converged for step {} within tolorance {}'.format(step, max_step_size/windows))
+                    converged = True
+                else:
+                    ddg += line[best_window]
+                    ddg_error = (ddg_error ** 2 + line_err[best_window] ** 2) ** 0.5
+
+                #Check if need to extend line search beacuse last window was the best
                 if best_window == len(line)-1:
                     logger.debug('Last window was best window, extending line search')
                     extend_line = True
@@ -341,12 +357,7 @@ class Optimize(object):
                 # Get params corresponding to best window
                 all_params_plus_one = [a + ((b - a) / (windows - 1)) * (best_window) for a, b in
                                     zip(all_params, all_params_plus_one)]
-                if line[best_window] >= 0:
-                    #Failed to find down hill must be at minimum within convergance = max_step_size/windows
-                    logger.debug('Converged for step {} within tolorance {}'.format(step, max_step_size/windows))
-                    converged = True
-                else:
-                    ddg += line[best_window]
+
 
                 # dont need dynamics for last fep optimisation iteration or if extending successful line search
                 if not converged and not extend_line:
@@ -355,17 +366,17 @@ class Optimize(object):
 
             if not converged:
                 logger.debug(
-                    "Current binding free energy improvement {0} kcal/mol for step {1}/{2}".format(ddg, step + 1, self.steps))
+                    "Current binding free energy improvement {0} +- {1} kcal/mol for step {2}/{3}".format(ddg, ddg_error, step + 1, self.steps))
                 all_params = all_params_plus_one
                 if not extend_line:
                     step += 1
             else:
                 step = self.steps
                 logger.debug(
-                    "Final binding free energy improvement {0} kcal/mol".format(ddg))
+                    "Final binding free energy improvement {0} +- {1} kcal/mol".format(ddg, ddg_error))
                 write_charges('params_opt', all_params)
 
-        return list(all_params), ddg
+        return list(all_params), ddg, ddg_error
 
     def process_mutant(self, parameters):
         '''
