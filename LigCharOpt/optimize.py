@@ -192,7 +192,7 @@ class Optimize(object):
 
         for replica in range(self.num_fep):
             logger.debug('Replica {}/{}'.format(replica+1, self.num_fep))
-            ddg_fep, ddg_error = Optimize.run_fep(self, self.og_all_params, opt_params, 2500, 500, 12)
+            ddg_fep, ddg_error = Optimize.run_fep(self, self.og_all_params, opt_params, 2500, 250, 12)
             logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
 
         if name != 'FEP_only':
@@ -295,10 +295,10 @@ class Optimize(object):
                 #if not extending line search recalculate gradient to change search direction
                 write_charges('params_{}'.format(step), all_params)
                 grad = gradient(all_params, 1, self) #1 here is a dummy variable
-                write_charges('gradient_{}'.format(step), grad)
                 grad = np.array(grad)
                 constrained_step = constrain_net_charge(grad, len(self.wt_nonbonded))
                 norm_const_step = constrained_step / np.linalg.norm(constrained_step)
+                write_charges('gradient_{}'.format(step), norm_const_step)
 
             # Line search using spp, fast per step but can't step far in param space without losing accuracy
             if linesearch == 'ssp':
