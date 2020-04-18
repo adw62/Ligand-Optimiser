@@ -76,7 +76,7 @@ def main(argv=None):
     elif args['--setup_path']:
         # READ OPTIONS
         systems = SysBuilder('./input/', './receptor.pdb', './ligand.mol2', 'amber14/protein.ff14SB.xml',
-                             'amber14/spce.xml', './gaff.xml', 0.65 * unit.nanometers, 0.125 * unit.molar)
+                             'amber14/spce.xml', './gaff.xml', 1.0 * unit.nanometers, 0.125 * unit.molar)
     else:
         raise ValueError('No set up script provided. Set setup_path or yaml_path')
 

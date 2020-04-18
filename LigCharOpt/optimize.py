@@ -171,7 +171,7 @@ class Optimize(object):
             opt_params, ddg_opt, ddg_error = Optimize.grad_decent(self, max_step_size=0.03, linesearch='ssp')
 
         elif name == 'grad_decent_fep':
-            opt_params, ddg_opt, ddg_error = Optimize.grad_decent(self, max_step_size=0.1, linesearch='fep')
+            opt_params, ddg_opt, ddg_error = Optimize.grad_decent(self, max_step_size=0.05, linesearch='fep')
 
         elif name == 'scipy':
             opt_params, ddg_opt = Optimize.scipy(self)
@@ -192,8 +192,8 @@ class Optimize(object):
 
         for replica in range(self.num_fep):
             print('Replica {}/{}'.format(replica+1, self.num_fep))
-            ddg_fep, ddg_error = Optimize.run_fep(self, self.og_all_params, opt_params, 2500, 250, 12)
-            print('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
+            ddg_fep, ddg_fep_error = Optimize.run_fep(self, self.og_all_params, opt_params, 2500, 250, 12)
+            print('ddG FEP = {} +- {}'.format(ddg_fep, ddg_fep_error))
 
         if name != 'FEP_only':
             if name == 'grad_decent_fep':
@@ -350,6 +350,8 @@ class Optimize(object):
                 #Check if need to extend line search beacuse last window was the best
                 if best_window == len(line)-1:
                     print('Last window was best window, extending line search')
+                    #write a checkpoint of params
+                    write_charges('params_{0}_extend'.format(step), all_params)
                     extend_line = True
                 else:
                     extend_line = False
