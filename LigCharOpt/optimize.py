@@ -171,7 +171,7 @@ class Optimize(object):
             opt_params, ddg_opt, ddg_error = Optimize.grad_decent(self, max_step_size=0.03, linesearch='ssp')
 
         elif name == 'grad_decent_fep':
-            opt_params, ddg_opt, ddg_error = Optimize.grad_decent(self, max_step_size=0.05, linesearch='fep')
+            opt_params, ddg_opt, ddg_error = Optimize.grad_decent(self, max_step_size=0.12, linesearch='fep')
 
         elif name == 'scipy':
             opt_params, ddg_opt = Optimize.scipy(self)
@@ -288,12 +288,12 @@ class Optimize(object):
         ddg_error = 0.0
         converged = False
         extend_line = False
+        write_charges('params_og'.format(step), all_params)
         # optimization loop
         while step < self.steps:
             step_size = max_step_size
             if not extend_line:
                 #if not extending line search recalculate gradient to change search direction
-                write_charges('params_{}'.format(step), all_params)
                 grad = gradient(all_params, 1, self) #1 here is a dummy variable
                 grad = np.array(grad)
                 constrained_step = constrain_net_charge(grad, len(self.wt_nonbonded))
@@ -339,9 +339,9 @@ class Optimize(object):
                 print('Line search found best window {} from line {}'.format(best_window, line))
 
                 #Check if converged because 0th window was the best unless we are currently extending line search
-                if best_window == 0 and not extend_line:
+                if best_window < (windows/2) and not extend_line:
                     #Failed to find down hill must be at minimum within convergance = max_step_size/windows
-                    print('Converged for step {} within tolorance {}'.format(step, max_step_size/windows))
+                    print('Converged for step {} within tolorance {}'.format(step, max_step_size/(windows/2)))
                     converged = True
                 else:
                     ddg += line[best_window]
@@ -350,8 +350,6 @@ class Optimize(object):
                 #Check if need to extend line search beacuse last window was the best
                 if best_window == len(line)-1:
                     print('Last window was best window, extending line search')
-                    #write a checkpoint of params
-                    write_charges('params_{0}_extend'.format(step), all_params)
                     extend_line = True
                 else:
                     extend_line = False
@@ -362,20 +360,22 @@ class Optimize(object):
 
 
                 # dont need dynamics for last fep optimisation iteration or if extending successful line search
-                if not converged and not extend_line:
+                if not converged and not extend_line and step != self.steps-1:
                     print('Computing dynamics for next step...')
                     self.run_dynamics(all_params_plus_one)
 
             if not converged:
-                print(
-                    "Current binding free energy improvement {0} +- {1} kcal/mol for step {2}/{3}".format(ddg, ddg_error, step + 1, self.steps))
+                print("Current binding free energy improvement {0} +- {1} kcal/mol for step {2}/{3}".format(ddg, ddg_error,
+                                                                                                            step + 1, self.steps))
                 all_params = all_params_plus_one
                 if not extend_line:
                     step += 1
+                write_charges('params_{}'.format(step), all_params)
             else:
                 step = self.steps
                 print(
                     "Final binding free energy improvement {0} +- {1} kcal/mol".format(ddg, ddg_error))
+                all_params = all_params_plus_one
                 write_charges('params_opt', all_params)
 
         return list(all_params), ddg, ddg_error
