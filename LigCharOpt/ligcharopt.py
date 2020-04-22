@@ -20,7 +20,7 @@ e = unit.elementary_charges
 class LigCharOpt(object):
     def __init__(self, output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name, job_type,
                  auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, param, gaff_ver, opt, num_gpu,
-                 num_fep, equi, central_diff, opt_name, opt_steps, rmsd, exclude_dualtopo, lock_atoms):
+                 num_fep, equi, central_diff, opt_name, opt_steps, rmsd, exclude_dualtopo, lock_atoms, systems):
 
         self.output_folder = output_folder
         self.net_charge = net_charge
@@ -37,13 +37,13 @@ class LigCharOpt(object):
         solvent_sim_dir = input_folder + solvent_name + '/'
 
         if os.path.isdir(self.output_folder):
-            logger.debug('Output folder {} already exists. '
+            print('Output folder {} already exists. '
                   'Will attempt to skip ligand parametrisation, proceed with caution...'.format(self.output_folder))
         else:
             try:
                 os.makedirs(self.output_folder)
             except:
-                logger.debug('Could not create output folder {}'.format(self.output_folder))
+                print('Could not create output folder {}'.format(self.output_folder))
         shutil.copy2(input_folder+mol_file, self.output_folder)
         self.mol = Mol2()
         try:
@@ -70,11 +70,11 @@ class LigCharOpt(object):
 
         input_files = input_files[1:3]
         self.complex_offset, self.solvent_offset = get_ligand_offset(input_files, self.mol2_ligand_atoms, ligand_name)
-        logger.debug('Parametrize wild type ligand...')
+        print('Parametrize wild type ligand...')
         wt_ligand = MutatedLigand(file_path=self.output_folder, mol_name=mol_name,
                                   net_charge=self.net_charge, gaff=self.gaff_ver)
 
-        logger.debug('Loading complex and solvent systems...')
+        print('Loading complex and solvent systems...')
         tests = ['SSP_convergence_test', 'FEP_convergence_test', 'FS_test']
 
         if opt == True:
@@ -89,7 +89,7 @@ class LigCharOpt(object):
         self.complex_sys = []
         self.complex_sys.append(FSim(ligand_name=ligand_name, sim_name=complex_name, input_folder=input_folder,
                                      param=param, num_gpu=num_gpu, offset=self.complex_offset,
-                                     opt=opt, exclude_dualtopo=exclude_dualtopo))
+                                     opt=opt, exclude_dualtopo=exclude_dualtopo, system=systems.complex))
         self.complex_sys.append([complex_sim_dir + complex_name + '.dcd'])
         self.complex_sys.append(complex_sim_dir + complex_name + '.pdb')
         if run_dynamics:
@@ -104,7 +104,7 @@ class LigCharOpt(object):
         self.solvent_sys = []
         self.solvent_sys.append(FSim(ligand_name=ligand_name, sim_name=solvent_name, input_folder=input_folder,
                                      param=param, num_gpu=num_gpu, offset=self.solvent_offset,
-                                     opt=opt, exclude_dualtopo=exclude_dualtopo))
+                                     opt=opt, exclude_dualtopo=exclude_dualtopo, system=systems.solvent))
         self.solvent_sys.append([solvent_sim_dir + solvent_name + '.dcd'])
         self.solvent_sys.append(solvent_sim_dir + solvent_name + '.pdb')
         if run_dynamics:
@@ -135,7 +135,7 @@ class LigCharOpt(object):
         Create OpenMM systems of ligands from prmtop files.
         Extract ligand parameters from OpenMM systems.
         """
-        logger.debug('Parametrize mutant ligands...')
+        print('Parametrize mutant ligands...')
         t0 = time.time()
 
         mutated_ligands = []
@@ -170,8 +170,8 @@ class LigCharOpt(object):
             solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(mutant_params, 1, i, 20000, 50, 12)
             ddg_fep = complex_dg - solvent_dg
             ddg_error = (complex_error**2+solvent_error**2)**0.5
-            logger.debug('Mutant {}:'.format(atom_names))
-            logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
+            print('Mutant {}:'.format(atom_names))
+            print('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
         t1 = time.time()
-        logger.debug('Took {} seconds'.format(t1 - t0))
+        print('Took {} seconds'.format(t1 - t0))
 

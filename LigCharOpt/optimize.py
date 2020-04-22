@@ -171,7 +171,7 @@ class Optimize(object):
             opt_params, ddg_opt, ddg_error = Optimize.grad_decent(self, max_step_size=0.03, linesearch='ssp')
 
         elif name == 'grad_decent_fep':
-            opt_params, ddg_opt, ddg_error = Optimize.grad_decent(self, max_step_size=0.1, linesearch='fep')
+            opt_params, ddg_opt, ddg_error = Optimize.grad_decent(self, max_step_size=0.12, linesearch='fep')
 
         elif name == 'scipy':
             opt_params, ddg_opt = Optimize.scipy(self)
@@ -181,7 +181,7 @@ class Optimize(object):
         scale = 10
         param_diff = [x-y*scale for x,y in zip(og_all_params, opt_params)]
 
-        logger.debug('Writing mol2 files with parameter differences')
+        print('Writing mol2 files with parameter differences')
         if 'sigma' not in self.param:
             Mol2.write_mol2(self.mol, './', 'opt_lig_charge', charges=param_diff[:len(self.wt_nonbonded)])
         elif 'charge' not in self.param:
@@ -191,15 +191,15 @@ class Optimize(object):
             Mol2.write_mol2(self.mol, './', 'opt_lig_charge', charges=param_diff[:len(self.wt_nonbonded)])
 
         for replica in range(self.num_fep):
-            logger.debug('Replica {}/{}'.format(replica+1, self.num_fep))
-            ddg_fep, ddg_error = Optimize.run_fep(self, self.og_all_params, opt_params, 2500, 250, 12)
-            logger.debug('ddG FEP = {} +- {}'.format(ddg_fep, ddg_error))
+            print('Replica {}/{}'.format(replica+1, self.num_fep))
+            ddg_fep, ddg_fep_error = Optimize.run_fep(self, self.og_all_params, opt_params, 2500, 250, 12)
+            print('ddG FEP = {} +- {}'.format(ddg_fep, ddg_fep_error))
 
         if name != 'FEP_only':
             if name == 'grad_decent_fep':
-                logger.debug('ddG opt = {0} +- {1}'.format(ddg_opt, ddg_error))
+                print('ddG opt = {0} +- {1}'.format(ddg_opt, ddg_error))
             else:
-                logger.debug('ddG opt = {0}'.format(ddg_opt))
+                print('ddG opt = {0}'.format(ddg_opt))
 
     def run_fep(self, start_params, end_params, n_steps, n_iterations, windows, return_dg_matrix=False):
 
@@ -264,18 +264,18 @@ class Optimize(object):
                            args=(all_params, self), constraints=cons)
             all_params_plus_one = sol.x
             forward_ddg = sol.fun
-            logger.debug('Computing reverse leg of accepted step...')
+            print('Computing reverse leg of accepted step...')
             self.run_dynamics(all_params_plus_one)
             reverse_ddg = -1 * objective(all_params, all_params_plus_one, self)
-            logger.debug('Forward {} and reverse {} steps'.format(forward_ddg, reverse_ddg))
+            print('Forward {} and reverse {} steps'.format(forward_ddg, reverse_ddg))
             ddg += (forward_ddg + reverse_ddg) / 2.0
-            logger.debug(sol)
-            logger.debug("Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step+1, self.steps))
+            print(sol)
+            print("Current binding free energy improvement {0} for step {1}/{2}".format(ddg, step+1, self.steps))
 
             all_params = all_params_plus_one
             step += 1
 
-        logger.debug("Final binding free energy improvement {0}".format(ddg))
+        print("Final binding free energy improvement {0}".format(ddg))
         write_charges('params_opt', all_params)
 
         return list(all_params), ddg
@@ -288,12 +288,12 @@ class Optimize(object):
         ddg_error = 0.0
         converged = False
         extend_line = False
+        write_charges('params_og'.format(step), all_params)
         # optimization loop
         while step < self.steps:
             step_size = max_step_size
             if not extend_line:
                 #if not extending line search recalculate gradient to change search direction
-                write_charges('params_{}'.format(step), all_params)
                 grad = gradient(all_params, 1, self) #1 here is a dummy variable
                 grad = np.array(grad)
                 constrained_step = constrain_net_charge(grad, len(self.wt_nonbonded))
@@ -308,11 +308,11 @@ class Optimize(object):
                 while forward_ddg > 0.0:
                     if count > max_count:
                         # If cant find a down hill direction must be at minimum within convergance = max_step_size*(damp**max_count)
-                        logger.debug('Converged for step {} within tolerance {}'.format(step, max_step_size*(damp**max_count)))
+                        print('Converged for step {} within tolerance {}'.format(step, max_step_size*(damp**max_count)))
                         converged = True
                         break
                     all_params_plus_one = all_params - step_size * norm_const_step
-                    logger.debug('Computing objective with step size {}...'.format(step_size))
+                    print('Computing objective with step size {}...'.format(step_size))
                     forward_ddg = objective(all_params_plus_one, all_params, self)
                     count += 1
                     step_size = step_size * damp
@@ -320,10 +320,10 @@ class Optimize(object):
                 # if converged dont need reverse step
                 if not converged:
                     # Run some dynamics with new charges
-                    logger.debug('Computing reverse leg of accepted step...')
+                    print('Computing reverse leg of accepted step...')
                     self.run_dynamics(all_params_plus_one)
                     reverse_ddg = -1 * objective(all_params, all_params_plus_one, self)
-                    logger.debug('Forward {} and reverse {} steps'.format(forward_ddg, reverse_ddg))
+                    print('Forward {} and reverse {} steps'.format(forward_ddg, reverse_ddg))
                     ddg += (forward_ddg + reverse_ddg) / 2.0
 
             # Line search using fep, slower per step but could in theory step much further in param space than ssp.
@@ -336,12 +336,12 @@ class Optimize(object):
                 line = ddg_fep[0]
                 line_err = ddg_fep_err[0]
                 best_window = list(line).index(min(line))
-                logger.debug('Line search found best window {} from line {}'.format(best_window, line))
+                print('Line search found best window {} from line {}'.format(best_window, line))
 
                 #Check if converged because 0th window was the best unless we are currently extending line search
-                if best_window == 0 and not extend_line:
+                if best_window < (windows/2) and not extend_line:
                     #Failed to find down hill must be at minimum within convergance = max_step_size/windows
-                    logger.debug('Converged for step {} within tolorance {}'.format(step, max_step_size/windows))
+                    print('Converged for step {} within tolorance {}'.format(step, max_step_size/(windows/2)))
                     converged = True
                 else:
                     ddg += line[best_window]
@@ -349,7 +349,7 @@ class Optimize(object):
 
                 #Check if need to extend line search beacuse last window was the best
                 if best_window == len(line)-1:
-                    logger.debug('Last window was best window, extending line search')
+                    print('Last window was best window, extending line search')
                     extend_line = True
                 else:
                     extend_line = False
@@ -360,20 +360,22 @@ class Optimize(object):
 
 
                 # dont need dynamics for last fep optimisation iteration or if extending successful line search
-                if not converged and not extend_line:
-                    logger.debug('Computing dynamics for next step...')
+                if not converged and not extend_line and step != self.steps-1:
+                    print('Computing dynamics for next step...')
                     self.run_dynamics(all_params_plus_one)
 
             if not converged:
-                logger.debug(
-                    "Current binding free energy improvement {0} +- {1} kcal/mol for step {2}/{3}".format(ddg, ddg_error, step + 1, self.steps))
+                print("Current binding free energy improvement {0} +- {1} kcal/mol for step {2}/{3}".format(ddg, ddg_error,
+                                                                                                            step + 1, self.steps))
                 all_params = all_params_plus_one
                 if not extend_line:
                     step += 1
+                write_charges('params_{}'.format(step), all_params)
             else:
                 step = self.steps
-                logger.debug(
+                print(
                     "Final binding free energy improvement {0} +- {1} kcal/mol".format(ddg, ddg_error))
+                all_params = all_params_plus_one
                 write_charges('params_opt', all_params)
 
         return list(all_params), ddg, ddg_error
@@ -419,10 +421,10 @@ def gradient(all_params, dummy, sim):
     dh = 1.5e-04
     if sim.central:
         h = [0.5*dh, -0.5*dh]
-        logger.debug('Computing jacobian with central difference...')
+        print('Computing jacobian with central difference...')
     else:
         h = [dh]
-        logger.debug('Computing jacobian with forward difference...')
+        print('Computing jacobian with forward difference...')
     ddG = []
 
     for diff in h:

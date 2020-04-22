@@ -2,12 +2,13 @@
 
 import os
 import shutil
-import logging
+
+from Fluorify.fluorify import SysBuilder
 
 from .ligcharopt import LigCharOpt
 from docopt import docopt
+from simtk import unit
 
-logger = logging.getLogger(__name__)
 
 # =============================================================================================
 # COMMAND-LINE INTERFACE
@@ -17,7 +18,7 @@ usage = """
 LIGCHAROPT
 Usage:
   LigCharOpt [--output_folder=STRING] [--mol_name=STRING] [--ligand_name=STRING] [--complex_name=STRING] [--solvent_name=STRING]
-            [--yaml_path=STRING] [--o_atom_list=LIST] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT] [--net_charge=INT]
+            [--yaml_path=STRING] [--setup_path=STRING] [--o_atom_list=LIST] [--c_atom_list=LIST] [--h_atom_list=LIST] [--num_frames=INT] [--net_charge=INT]
             [--gaff_ver=INT] [--equi=INT] [--num_fep=INT] [--auto_select=STRING] [--param=STRING] [--optimize=BOOL] [--lock_atoms=LIST]
             [--num_gpu=INT] [--opt_name=STRING] [--rmsd=FLOAT] [--exclude_dualtopo=BOOL] [--opt_steps=INT] [--central_diff=BOOL] [--job_type=STRING]...
 """
@@ -60,49 +61,57 @@ def main(argv=None):
         complex_name = args['--complex_name']
     else:
         complex_name = 'complex'
-        logger.debug(msg.format('complex name', complex_name))
+        print(msg.format('complex name', complex_name))
 
     if args['--solvent_name']:
         solvent_name = args['--solvent_name']
     else:
         solvent_name = 'solvent'
-        logger.debug(msg.format('solvent name', solvent_name))
+        print(msg.format('solvent name', solvent_name))
 
     # Run the setup pipeline.
     if args['--yaml_path']:
+        # Use yank system builder
         run_automatic_pipeline(args['--yaml_path'], complex_name, solvent_name)
+        #All these variables passed are dummies we are using yank to prep system.
+        systems = SysBuilder('./input/', './receptor.pdb', './ligand.mol2', 'amber14/protein.ff14SB.xml',
+                             'amber14/spce.xml', './gaff.xml', 1.0 * unit.nanometers, 0.125 * unit.molar, using_yank=True)
+    elif args['--setup_path']:
+        # READ OPTIONS
+        systems = SysBuilder('./input/', './receptor.pdb', './ligand.mol2', 'amber14/protein.ff14SB.xml',
+                             'amber14/spce.xml', './gaff.xml', 1.0 * unit.nanometers, 0.125 * unit.molar)
     else:
-        run_automatic_pipeline('./setup.yaml', complex_name, solvent_name)
+        raise ValueError('No set up script provided. Set setup_path or yaml_path')
 
     if args['--mol_name']:
         mol_name = args['--mol_name']
     else:
         mol_name = 'ligand'
-        logger.debug(msg.format('mol file', mol_name + '.mol2'))
+        print(msg.format('mol file', mol_name + '.mol2'))
 
     if args['--ligand_name']:
         ligand_name = args['--ligand_name']
     else:
         ligand_name = 'MOL'
-        logger.debug(msg.format('ligand residue name', ligand_name))
+        print(msg.format('ligand residue name', ligand_name))
 
     if args['--num_frames']:
         num_frames = int(args['--num_frames'])
     else:
         num_frames = 500
-        logger.debug(msg.format('number of frames', num_frames))
+        print(msg.format('number of frames', num_frames))
 
     if args['--equi']:
         equi = int(args['--equi'])
     else:
         equi = 100
-        logger.debug(msg.format('Number of equilibration steps', equi))
+        print(msg.format('Number of equilibration steps', equi))
 
     if args['--net_charge']:
         net_charge = int(args['--net_charge'])
     else:
         net_charge = None
-        logger.debug(msg.format('net charge', net_charge))
+        print(msg.format('net charge', net_charge))
 
     if args['--gaff_ver']:
         gaff_ver = int(args['--gaff_ver'])
@@ -110,7 +119,7 @@ def main(argv=None):
             raise ValueError('Can only use gaff ver. 1 or 2')
     else:
         gaff_ver = 2
-        logger.debug(msg.format('gaff version', gaff_ver))
+        print(msg.format('gaff version', gaff_ver))
 
     if args['--param']:
         param = str(args['--param'])
@@ -124,28 +133,28 @@ def main(argv=None):
         param = ['charge']
 
     if 'charge' in param:
-        logger.debug('Mutating ligand charges only...')
+        print('Mutating ligand charges only...')
     elif 'vdw' in param:
-        logger.debug('Mutating ligand VDW only...')
+        print('Mutating ligand VDW only...')
     elif 'sigma' in param:
-        logger.debug('Mutating ligand sigmas only...')
+        print('Mutating ligand sigmas only...')
     elif 'weight' in param:
-        logger.debug('Mutating ligand weights only...')
+        print('Mutating ligand weights only...')
     else:
-        logger.debug('Mutating all ligand parameters...')
+        print('Mutating all ligand parameters...')
         
     if args['--exclude_dualtopo']:
         exclude_dualtopo = int(args['--exclude_dualtopo'])
     else:
         exclude_dualtopo = True
-        logger.debug('Excluding dual topology from seeing itself')
+        print('Excluding dual topology from seeing itself')
 
     if args['--optimize']:
         opt = int(args['--optimize'])
     else:
         opt = False
     if opt == True:
-        logger.debug('Optimizing ligand parameters...')
+        print('Optimizing ligand parameters...')
         c_atom_list = None
         h_atom_list = None
         o_atom_list = None
@@ -155,7 +164,7 @@ def main(argv=None):
             central_diff = int(args['--central_diff'])
         else:
             central_diff = False
-            logger.debug(msg.format('finite difference method', 'forward difference'))
+            print(msg.format('finite difference method', 'forward difference'))
         optimizer_names = ['scipy', 'FEP_only', 'grad_decent_ssp', 'grad_decent_fep']
         if args['--opt_name']:
             opt_name = args['--opt_name']
@@ -163,19 +172,19 @@ def main(argv=None):
                 raise ValueError('Unknown optimizer specified chose from {}'.format(optimizer_names))
         else:
             opt_name = 'grad_decent_ssp'
-            logger.debug(msg.format('optimization method', opt_name))
+            print(msg.format('optimization method', opt_name))
         if args['--opt_steps']:
             opt_steps = int(args['--opt_steps'])
         else:
             opt_steps = 10
-            logger.debug(msg.format('number of optimization steps', opt_steps))
+            print(msg.format('number of optimization steps', opt_steps))
         if args['--rmsd']:
             rmsd = float(args['--rmsd'])
         else:
             rmsd = 0.03
-            logger.debug(msg.format('optimization rmsd', rmsd))
+            print(msg.format('optimization rmsd', rmsd))
     else:
-        logger.debug('Scanning ligand...')
+        print('Scanning ligand...')
         if args['--central_diff']:
             raise ValueError('Finite difference method option only compatible with an optimization')
         else:
@@ -257,7 +266,7 @@ def main(argv=None):
                 raise ValueError('Allowed elements {}'.format(allowed_jobs))
         else:
             job_type = 'F'
-            logger.debug(msg.format('job_type', job_type))
+            print(msg.format('job_type', job_type))
 
     if args['--output_folder']:
         output_folder = args['--output_folder']
@@ -272,19 +281,19 @@ def main(argv=None):
         if o_atom_list is not None:
             id += '_O' + o_name
         output_folder = './' + mol_name + '_' + job_type + id + '/'
-        logger.debug(msg.format('output folder', output_folder))
+        print(msg.format('output folder', output_folder))
 
     if args['--num_gpu']:
         num_gpu = int(args['--num_gpu'])
     else:
         num_gpu = 1
-        logger.debug(msg.format('number of GPUs per node', num_gpu))
+        print(msg.format('number of GPUs per node', num_gpu))
 
     if args['--num_fep']:
         num_fep = args['--num_fep']
     else:
         num_fep = 1
-        logger.debug(msg.format('number of FEP calculations', num_fep))
+        print(msg.format('number of FEP calculations', num_fep))
 
     if args['--lock_atoms']:
         lock_atoms = args['--lock_atoms']
@@ -297,5 +306,5 @@ def main(argv=None):
 
     LigCharOpt(output_folder, mol_name, ligand_name, net_charge, complex_name, solvent_name,
          job_type, auto_select, c_atom_list, h_atom_list, o_atom_list, num_frames, param, gaff_ver,
-             opt, num_gpu, num_fep, equi, central_diff, opt_name, opt_steps, rmsd, exclude_dualtopo, lock_atoms)
+             opt, num_gpu, num_fep, equi, central_diff, opt_name, opt_steps, rmsd, exclude_dualtopo, lock_atoms, systems)
 
