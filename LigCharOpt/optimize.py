@@ -166,12 +166,11 @@ class Optimize(object):
         optimising ligand params
 
         """
-
         if name == 'grad_decent_ssp':
             opt_params, ddg_opt, ddg_error = Optimize.grad_decent(self, max_step_size=0.03, linesearch='ssp')
 
         elif name == 'grad_decent_fep':
-            opt_params, ddg_opt, ddg_error = Optimize.grad_decent(self, max_step_size=0.12, linesearch='fep')
+            opt_params, ddg_opt, ddg_error = Optimize.grad_decent(self, max_step_size=0.6, linesearch='fep')
 
         elif name == 'scipy':
             opt_params, ddg_opt = Optimize.scipy(self)
@@ -210,8 +209,16 @@ class Optimize(object):
 
         complex_dg, complex_error = self.complex_sys[0].run_parallel_fep(mutant_params, 0, 0, n_steps, n_iterations,
                                                                          windows, return_dg_matrix=return_dg_matrix)
+        if complex_dg is False:
+            print('Found NaN in FEP for complex')
+            return False, False, False, False
+
+
         solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(mutant_params, 1, 0, n_steps, n_iterations,
                                                                          windows, return_dg_matrix=return_dg_matrix)
+        if solvent_dg is False:
+            print('Found NaN in FEP for solvent')
+            return False, False, False, False
 
         if return_dg_matrix:
             #remove kcal/mol units
@@ -288,12 +295,18 @@ class Optimize(object):
         ddg_error = 0.0
         converged = False
         extend_line = False
+        found_nan = False
         write_charges('params_og'.format(step), all_params)
         # optimization loop
         while step < self.steps:
-            step_size = max_step_size
-            if not extend_line:
+            if not found_nan:
+                #if no nans reset step size
+                step_size = max_step_size
+                print('Current step size = {}'.format(step_size))
+
+            if not extend_line and not found_nan:
                 #if not extending line search recalculate gradient to change search direction
+                #if recovering from a nan dont need a new direction
                 grad = gradient(all_params, 1, self) #1 here is a dummy variable
                 grad = np.array(grad)
                 constrained_step = constrain_net_charge(grad, len(self.wt_nonbonded))
@@ -328,47 +341,68 @@ class Optimize(object):
 
             # Line search using fep, slower per step but could in theory step much further in param space than ssp.
             elif linesearch == 'fep':
-                windows = 5
+                windows = 24
+                #2 windows is BAR
+                assert windows >= 2
                 all_params_plus_one = all_params - step_size * norm_const_step
-                c_dg, c_err, s_dg, s_err = self.run_fep(all_params, all_params_plus_one, 2500, 100, windows, True)
-                ddg_fep = c_dg - s_dg
-                ddg_fep_err = (c_err ** 2 + s_err ** 2) ** 0.5
-                line = ddg_fep[0]
-                line_err = ddg_fep_err[0]
-                best_window = list(line).index(min(line))
-                print('Line search found best window {} from line {}'.format(best_window, line))
+                c_dg, c_err, s_dg, s_err = self.run_fep(all_params, all_params_plus_one, 2500, 50, windows, True)
+                #catch nans
+                if c_dg is not False:
+                    found_nan = False
+                    ddg_fep = c_dg - s_dg
+                    ddg_fep_err = (c_err ** 2 + s_err ** 2) ** 0.5
+                    line = ddg_fep[0]
+                    line_err = ddg_fep_err[0]
+                    best_window = list(line).index(min(line))
+                    print('Line search found best window {} from line {}'.format(best_window, line))
 
-                #Check if converged because 0th window was the best unless we are currently extending line search
-                if best_window < (windows/2) and not extend_line:
-                    #Failed to find down hill must be at minimum within convergance = max_step_size/windows
-                    print('Converged for step {} within tolorance {}'.format(step, max_step_size/(windows/2)))
-                    converged = True
+                    #Check if converged because 0th window was the best unless we are currently extending line search
+                    if best_window < (windows/4) and not extend_line:
+                        # Failed to find down hill must be at minimum within convergance = step_size/x
+                        print('Converged for step {} within tolorance {}'.format(step, (step_size / 4)))
+                        converged = True
+                    else:
+                        ddg += line[best_window]
+                        ddg_error = (ddg_error ** 2 + line_err[best_window] ** 2) ** 0.5
+
+                    #Check if need to extend line search beacuse last window was the best
+                    if best_window == len(line)-1:
+                        print('Last window was best window, extending line search')
+                        extend_line = True
+                    else:
+                        extend_line = False
+
+                    # Get params corresponding to best window
+                    all_params_plus_one = [a + ((b - a) / (windows - 1)) * (best_window) for a, b in
+                                        zip(all_params, all_params_plus_one)]
+
+
+                    # dont need dynamics for last fep optimisation iteration or if extending successful line search
+                    if not converged and not extend_line and step != self.steps-1:
+                        print('Computing dynamics for next step...')
+                        self.run_dynamics(all_params_plus_one)
                 else:
-                    ddg += line[best_window]
-                    ddg_error = (ddg_error ** 2 + line_err[best_window] ** 2) ** 0.5
+                    if not extend_line:
+                        #if we caught a nan and we are not extending reduce step size
+                        step_size = step_size/2
+                        print('Reducing step size to {}'.format(step_size))
+                        found_nan = True
+                        # reset step
+                        all_params_plus_one = all_params
 
-                #Check if need to extend line search beacuse last window was the best
-                if best_window == len(line)-1:
-                    print('Last window was best window, extending line search')
-                    extend_line = True
-                else:
-                    extend_line = False
-
-                # Get params corresponding to best window
-                all_params_plus_one = [a + ((b - a) / (windows - 1)) * (best_window) for a, b in
-                                    zip(all_params, all_params_plus_one)]
-
-
-                # dont need dynamics for last fep optimisation iteration or if extending successful line search
-                if not converged and not extend_line and step != self.steps-1:
-                    print('Computing dynamics for next step...')
-                    self.run_dynamics(all_params_plus_one)
+                    else:
+                        # if we where extending a line search assume NaN is coming from being at the end of the line
+                        # set extend line and found nan to False to re calc gradient and change direction
+                        found_nan = False
+                        extend_line = False
+                        # reset step
+                        all_params_plus_one = all_params
 
             if not converged:
                 print("Current binding free energy improvement {0} +- {1} kcal/mol for step {2}/{3}".format(ddg, ddg_error,
                                                                                                             step + 1, self.steps))
                 all_params = all_params_plus_one
-                if not extend_line:
+                if not extend_line and not found_nan:
                     step += 1
                 write_charges('params_{}'.format(step), all_params)
             else:

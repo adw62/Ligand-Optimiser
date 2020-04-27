@@ -75,11 +75,11 @@ def main(argv=None):
         run_automatic_pipeline(args['--yaml_path'], complex_name, solvent_name)
         #All these variables passed are dummies we are using yank to prep system.
         systems = SysBuilder('./input/', './receptor.pdb', './ligand.mol2', 'amber14/protein.ff14SB.xml',
-                             'amber14/spce.xml', './gaff.xml', 1.0 * unit.nanometers, 0.125 * unit.molar, using_yank=True)
+                             'amber14/spce.xml', './gaff.xml', 1.0 * unit.nanometers, 0.15 * unit.molar, using_yank=True)
     elif args['--setup_path']:
         # READ OPTIONS
         systems = SysBuilder('./input/', './receptor.pdb', './ligand.mol2', 'amber14/protein.ff14SB.xml',
-                             'amber14/spce.xml', './gaff.xml', 1.0 * unit.nanometers, 0.125 * unit.molar)
+                             'amber14/spce.xml', './gaff.xml', 0.6 * unit.nanometers, 0.15 * unit.molar)
     else:
         raise ValueError('No set up script provided. Set setup_path or yaml_path')
 
