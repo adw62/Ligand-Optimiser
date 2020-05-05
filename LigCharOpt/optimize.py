@@ -397,7 +397,7 @@ class Optimize(object):
             if step_size < max_step_size/10:
                 #this if catches the senario where we are continuously naning and the step size keeps halving
                 #5 nans in a row will reduce step size by a factor of 10 and trip this if statment
-                # Failed to find down hill must be at minimum
+                # Failed to find down hill assume we are at the minimum within convergance
                 print('Converged for step {} within tolerance {}'.format(step, (max_step_size / 10)))
                 converged = True
 
@@ -542,6 +542,5 @@ def write_charges(name, charges):
     for q in charges:
         file.write('{}\n'.format(q))
     file.close()
-
 
 
