@@ -75,10 +75,12 @@ class LigCharOpt(object):
                                   net_charge=self.net_charge, gaff=self.gaff_ver)
 
         print('Loading complex and solvent systems...')
-        tests = ['SSP_convergence_test', 'FEP_convergence_test', 'FS_test']
+        print('Loading complex and solvent systems...')
+        tests = ['SSP_convergence_test', 'FEP_convergence_test', 'FS_test', 'FEP_only']
 
         if opt == True:
             if opt_name in tests:
+                print('Running test {}'.format(opt_name))
                 run_dynamics = False
             else:
                 run_dynamics = True

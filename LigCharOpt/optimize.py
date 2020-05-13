@@ -174,6 +174,11 @@ class Optimize(object):
 
         elif name == 'scipy':
             opt_params, ddg_opt = Optimize.scipy(self)
+        elif name == 'FEP_only':
+            with open('./params_opt', 'r') as f:
+                opt_params = []
+                for line in f:
+                    opt_params.append(line.strip('\n'))
 
         og_all_params = self.og_all_params
         #scale for ploting partial charge difference
@@ -191,8 +196,13 @@ class Optimize(object):
 
         for replica in range(self.num_fep):
             print('Replica {}/{}'.format(replica+1, self.num_fep))
-            ddg_fep, ddg_fep_error = Optimize.run_fep(self, self.og_all_params, opt_params, 2500, 250, 12)
-            print('ddG FEP = {} +- {}'.format(ddg_fep, ddg_fep_error))
+            if name == 'FEP_only':
+                sampling = [50, 100, 150, 200, 250, 300, 350]
+            else:
+                sampling = 250
+            for x in sampling:
+                ddg_fep, ddg_fep_error = Optimize.run_fep(self, self.og_all_params, opt_params, 2500, sampling, 12)
+                print('Sampling {}: ddG FEP = {} +- {}'.format(x, ddg_fep, ddg_fep_error))
 
         if name != 'FEP_only':
             if name == 'grad_decent_fep':
