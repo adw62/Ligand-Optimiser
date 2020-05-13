@@ -199,7 +199,7 @@ class Optimize(object):
             if name == 'FEP_only':
                 sampling = [50, 100, 150, 200, 250, 300, 350]
             else:
-                sampling = 250
+                sampling = [250]
             for x in sampling:
                 ddg_fep, ddg_fep_error = Optimize.run_fep(self, self.og_all_params, opt_params, 2500, sampling, 12)
                 print('Sampling {}: ddG FEP = {} +- {}'.format(x, ddg_fep, ddg_fep_error))
