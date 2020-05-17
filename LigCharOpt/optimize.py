@@ -328,17 +328,13 @@ class Optimize(object):
                 #if recovering from a nan dont need a new direction
                 grad = gradient(all_params, 1, self) #1 here is a dummy variable
                 grad = np.array(grad)
-                print(grad)
                 constrained_step = constrain_net_charge(grad, len(self.wt_nonbonded), self.lock_atoms)
-                print(constrained_step)
                 norm_const_step = constrained_step / np.linalg.norm(constrained_step)
-                print(norm_const_step )
                 write_charges('gradient_{}'.format(step), norm_const_step)
 
             #2 windows is BAR, less than 2 does is no pertubation
             assert line_windows >= 2
             all_params_plus_one = all_params - step_size * norm_const_step
-            print(np.sum(all_params_plus_one[:len(self.wt_nonbonded)]))
             c_dg, c_err, s_dg, s_err = self.run_fep(all_params, all_params_plus_one, 2500, line_sampling, line_windows, True)
             #catch nans
             if c_dg is not False:
@@ -509,6 +505,7 @@ def gradient(all_params, dummy, sim):
         binding_free_energy.insert(x, 0.0)
     return binding_free_energy
 
+
 def constrain_net_charge(delta, num_charges, lock_atoms):
     #remove sigma locks
     charge_locks = [x for x in lock_atoms if x < num_charges]
@@ -517,6 +514,15 @@ def constrain_net_charge(delta, num_charges, lock_atoms):
     val = np.sum(delta_q) / (len(delta_q)-len(charge_locks))
     delta_q = [x - val if i not in charge_locks else x for i, x in enumerate(delta_q)]
     return np.append(np.array(delta_q), delta_not_q)
+
+
+def constrain_net_charge_x(x, num_charges, net_charge):
+    x_q = x[:num_charges]
+    sum_ = net_charge
+    for charge in x_q:
+        sum_ = sum_ - charge
+    return sum_
+
 
 def rmsd_change_con(current_charge, og_charge, rmsd):
     maximum_rmsd = rmsd
