@@ -55,6 +55,8 @@ class Optimize(object):
         Optimize.optimize(self, name)
 
     def make_lock_list(self, user_locked_atoms):
+        assert min(user_locked_atoms) > 0
+        assert max(user_locked_atoms) < len(self.wt_nonbonded)+1
         # shift from indexed by 1(mol2) to indexed by 0(python)
         user_locked_atoms = [x - 1 for x in user_locked_atoms]
         # locked charges
@@ -167,10 +169,16 @@ class Optimize(object):
 
         """
         if name == 'grad_decent_ssp':
-            opt_params, ddg_opt, ddg_error = Optimize.grad_decent(self, max_step_size=0.03, linesearch='ssp')
+            raise NotImplemented('Removed ssp')
 
         elif name == 'grad_decent_fep':
-            opt_params, ddg_opt, ddg_error = Optimize.grad_decent(self, max_step_size=0.6, linesearch='fep')
+            if 'sigma' in self.param:
+                line_windows = 24
+                max_step_size = 0.6
+            else:
+                line_windows = 12
+                max_step_size = 0.4
+            opt_params, ddg_opt, ddg_error = Optimize.grad_decent(self, max_step_size, line_windows)
 
         elif name == 'scipy':
             opt_params, ddg_opt = Optimize.scipy(self)
@@ -200,7 +208,7 @@ class Optimize(object):
             if name == 'FEP_only':
                 sampling = [50, 100, 150, 200, 250, 300, 350]
             else:
-                sampling = [250]
+                sampling = [300]
             for x in sampling:
                 ddg_fep, ddg_fep_error = Optimize.run_fep(self, self.og_all_params, opt_params, 2500, x, 12)
                 print('Sampling {}: ddG FEP = {} +- {}'.format(x, ddg_fep, ddg_fep_error))
@@ -298,10 +306,9 @@ class Optimize(object):
 
         return list(all_params), ddg
 
-    def grad_decent(self, max_step_size, linesearch):
+    def grad_decent(self, max_step_size, line_windows, line_sampling=100):
         all_params = copy.deepcopy(self.og_all_params)
         step = 0
-        damp = 0.5
         ddg = 0.0
         ddg_error = 0.0
         converged = False
@@ -321,89 +328,64 @@ class Optimize(object):
                 #if recovering from a nan dont need a new direction
                 grad = gradient(all_params, 1, self) #1 here is a dummy variable
                 grad = np.array(grad)
-                constrained_step = constrain_net_charge(grad, len(self.wt_nonbonded))
+                print(grad)
+                constrained_step = constrain_net_charge(grad, len(self.wt_nonbonded), self.lock_atoms)
+                print(constrained_step)
                 norm_const_step = constrained_step / np.linalg.norm(constrained_step)
+                print(norm_const_step )
                 write_charges('gradient_{}'.format(step), norm_const_step)
 
-            # Line search using spp, fast per step but can't step far in param space without losing accuracy
-            if linesearch == 'ssp':
-                count = 0
-                max_count = 10
-                forward_ddg = 1.0
-                while forward_ddg > 0.0:
-                    if count > max_count:
-                        # If cant find a down hill direction must be at minimum within convergance = max_step_size*(damp**max_count)
-                        print('Converged for step {} within tolerance {}'.format(step, max_step_size*(damp**max_count)))
-                        converged = True
-                        break
-                    all_params_plus_one = all_params - step_size * norm_const_step
-                    print('Computing objective with step size {}...'.format(step_size))
-                    forward_ddg = objective(all_params_plus_one, all_params, self)
-                    count += 1
-                    step_size = step_size * damp
+            #2 windows is BAR, less than 2 does is no pertubation
+            assert line_windows >= 2
+            all_params_plus_one = all_params - step_size * norm_const_step
+            print(np.sum(all_params_plus_one[:len(self.wt_nonbonded)]))
+            c_dg, c_err, s_dg, s_err = self.run_fep(all_params, all_params_plus_one, 2500, line_sampling, line_windows, True)
+            #catch nans
+            if c_dg is not False:
+                found_nan = False
+                ddg_fep = c_dg - s_dg
+                ddg_fep_err = (c_err ** 2 + s_err ** 2) ** 0.5
+                line = ddg_fep[0]
+                line_err = ddg_fep_err[0]
+                best_window = list(line).index(min(line))
+                print('Line search found best window {} from line {}'.format(best_window, line))
 
-                # if converged dont need reverse step
-                if not converged:
-                    # Run some dynamics with new charges
-                    print('Computing reverse leg of accepted step...')
-                    self.run_dynamics(all_params_plus_one)
-                    reverse_ddg = -1 * objective(all_params, all_params_plus_one, self)
-                    print('Forward {} and reverse {} steps'.format(forward_ddg, reverse_ddg))
-                    ddg += (forward_ddg + reverse_ddg) / 2.0
+                #Check if converged because 0th window was the best unless we are currently extending line search
+                if best_window < (line_windows/6) and not extend_line:
+                    # Failed to find down hill must be at minimum within convergance = step_size/x
+                    print('Converged for step {} within tolerance {}'.format(step, (step_size / 6)))
+                    converged = True
 
-            # Line search using fep, slower per step but could in theory step much further in param space than ssp.
-            elif linesearch == 'fep':
-                windows = 24
-                #2 windows is BAR
-                assert windows >= 2
-                all_params_plus_one = all_params - step_size * norm_const_step
-                c_dg, c_err, s_dg, s_err = self.run_fep(all_params, all_params_plus_one, 2500, 50, windows, True)
-                #catch nans
-                if c_dg is not False:
-                    found_nan = False
-                    ddg_fep = c_dg - s_dg
-                    ddg_fep_err = (c_err ** 2 + s_err ** 2) ** 0.5
-                    line = ddg_fep[0]
-                    line_err = ddg_fep_err[0]
-                    best_window = list(line).index(min(line))
-                    print('Line search found best window {} from line {}'.format(best_window, line))
+                ddg += line[best_window]
+                ddg_error = (ddg_error ** 2 + line_err[best_window] ** 2) ** 0.5
 
-                    #Check if converged because 0th window was the best unless we are currently extending line search
-                    if best_window < (windows/6) and not extend_line:
-                        # Failed to find down hill must be at minimum within convergance = step_size/x
-                        print('Converged for step {} within tolerance {}'.format(step, (step_size / 6)))
-                        converged = True
-                    else:
-                        ddg += line[best_window]
-                        ddg_error = (ddg_error ** 2 + line_err[best_window] ** 2) ** 0.5
+                #Check if need to extend line search beacuse last window was the best
+                if best_window == len(line)-1:
+                    print('Last window was best window, extending line search')
+                    extend_line = True
+                else:
+                    extend_line = False
 
-                    #Check if need to extend line search beacuse last window was the best
-                    if best_window == len(line)-1:
-                        print('Last window was best window, extending line search')
-                        extend_line = True
-                    else:
-                        extend_line = False
+                # Get params corresponding to best window
+                all_params_plus_one = [a + ((b - a) / (line_windows - 1)) * (best_window) for a, b in
+                                    zip(all_params, all_params_plus_one)]
 
-                    # Get params corresponding to best window
-                    all_params_plus_one = [a + ((b - a) / (windows - 1)) * (best_window) for a, b in
-                                        zip(all_params, all_params_plus_one)]
+            else:
+                if not extend_line:
+                    #if we caught a nan and we are not extending reduce step size
+                    step_size = step_size/2
+                    print('Reducing step size to {}'.format(step_size))
+                    found_nan = True
+                    # reset step
+                    all_params_plus_one = all_params
 
                 else:
-                    if not extend_line:
-                        #if we caught a nan and we are not extending reduce step size
-                        step_size = step_size/2
-                        print('Reducing step size to {}'.format(step_size))
-                        found_nan = True
-                        # reset step
-                        all_params_plus_one = all_params
-
-                    else:
-                        # if we where extending a line search assume NaN is coming from being at the end of the line
-                        # set extend line and found nan to False to re calc gradient and change direction
-                        found_nan = False
-                        extend_line = False
-                        # reset step
-                        all_params_plus_one = all_params
+                    # if we where extending a line search assume NaN is coming from being at the end of the line
+                    # set extend line and found nan to False to re calc gradient and change direction
+                    found_nan = False
+                    extend_line = False
+                    # reset step
+                    all_params_plus_one = all_params
 
             if step_size < max_step_size/10:
                 #this if catches the senario where we are continuously naning and the step size keeps halving
@@ -527,20 +509,14 @@ def gradient(all_params, dummy, sim):
         binding_free_energy.insert(x, 0.0)
     return binding_free_energy
 
-def constrain_net_charge(delta, num_charges):
+def constrain_net_charge(delta, num_charges, lock_atoms):
+    #remove sigma locks
+    charge_locks = [x for x in lock_atoms if x < num_charges]
     delta_q = delta[:num_charges]
     delta_not_q = delta[num_charges:]
-    val = np.sum(delta_q) / len(delta_q)
-    delta_q = [x - val for x in delta_q]
+    val = np.sum(delta_q) / (len(delta_q)-len(charge_locks))
+    delta_q = [x - val if i not in charge_locks else x for i, x in enumerate(delta_q)]
     return np.append(np.array(delta_q), delta_not_q)
-
-def constrain_net_charge_x(x, num_charges, net_charge):
-    x_q = x[:num_charges]
-    sum_ = net_charge
-    for charge in x_q:
-        sum_ = sum_ - charge
-    return sum_
-
 
 def rmsd_change_con(current_charge, og_charge, rmsd):
     maximum_rmsd = rmsd
