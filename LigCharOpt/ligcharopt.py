@@ -75,7 +75,6 @@ class LigCharOpt(object):
                                   net_charge=self.net_charge, gaff=self.gaff_ver)
 
         print('Loading complex and solvent systems...')
-        print('Loading complex and solvent systems...')
         tests = ['SSP_convergence_test', 'FEP_convergence_test', 'FS_test', 'FEP_only']
 
         if opt == True:

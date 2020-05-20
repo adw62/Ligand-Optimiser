@@ -206,12 +206,18 @@ class Optimize(object):
         for replica in range(self.num_fep):
             print('Replica {}/{}'.format(replica+1, self.num_fep))
             if name == 'FEP_only':
-                sampling = [50, 100, 150, 200, 250, 300, 350]
+                windows = 24
+                sampling = 900
+                #long
+                convg = range(100, 1000, 100)
             else:
-                sampling = [300]
-            for x in sampling:
-                ddg_fep, ddg_fep_error = Optimize.run_fep(self, self.og_all_params, opt_params, 2500, x, 12)
-                print('Sampling {}: ddG FEP = {} +- {}'.format(x, ddg_fep, ddg_fep_error))
+                windows = 12
+                sampling = 350
+                #quick
+                convg = range(50, 400, 50)
+            ddg_fep, ddg_fep_error = Optimize.run_fep(self, self.og_all_params, opt_params, 2500,
+                                                      sampling, windows, convg=convg)
+            print('Sampling {}: ddG FEP = {} +- {}'.format(sampling, ddg_fep, ddg_fep_error))
 
         if name != 'FEP_only':
             if name == 'grad_decent_fep':
@@ -219,7 +225,7 @@ class Optimize(object):
             else:
                 print('ddG opt = {0}'.format(ddg_opt))
 
-    def run_fep(self, start_params, end_params, n_steps, n_iterations, windows, return_dg_matrix=False):
+    def run_fep(self, start_params, end_params, n_steps, n_iterations, windows, return_dg_matrix=False, convg=False):
 
         mutant = [self.process_mutant(end_params),  self.process_mutant(start_params)]
         mutation = [gen_mutations_dicts(), gen_mutations_dicts()]
@@ -227,14 +233,14 @@ class Optimize(object):
         mutant_params = Mutants(mutant, mutation, self.complex_sys[0], self.solvent_sys[0])
 
         complex_dg, complex_error = self.complex_sys[0].run_parallel_fep(mutant_params, 0, 0, n_steps, n_iterations,
-                                                                         windows, return_dg_matrix=return_dg_matrix)
+                                                                         windows, return_dg_matrix=return_dg_matrix, convg=convg)
         if complex_dg is False:
             print('Found NaN in FEP for complex')
             return False, False, False, False
 
 
         solvent_dg, solvent_error = self.solvent_sys[0].run_parallel_fep(mutant_params, 1, 0, n_steps, n_iterations,
-                                                                         windows, return_dg_matrix=return_dg_matrix)
+                                                                         windows, return_dg_matrix=return_dg_matrix, convg=convg)
         if solvent_dg is False:
             print('Found NaN in FEP for solvent')
             return False, False, False, False
@@ -511,6 +517,9 @@ def constrain_net_charge(delta, num_charges, lock_atoms):
     charge_locks = [x for x in lock_atoms if x < num_charges]
     delta_q = delta[:num_charges]
     delta_not_q = delta[num_charges:]
+    if len(delta_q) == len(charge_locks):
+        #assume all locked
+        return delta
     val = np.sum(delta_q) / (len(delta_q)-len(charge_locks))
     delta_q = [x - val if i not in charge_locks else x for i, x in enumerate(delta_q)]
     return np.append(np.array(delta_q), delta_not_q)
