@@ -167,7 +167,7 @@ def main(argv=None):
         else:
             central_diff = False
             print(msg.format('finite difference method', 'forward difference'))
-        optimizer_names = ['scipy', 'FEP_only', 'grad_decent_ssp', 'grad_decent_fep']
+        optimizer_names = ['scipy', 'FEP_only', 'grad_decent_ssp', 'grad_decent_fep', 'grad_convg']
         if args['--opt_name']:
             opt_name = args['--opt_name']
             if opt_name not in optimizer_names:

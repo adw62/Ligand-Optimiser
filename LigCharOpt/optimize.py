@@ -43,7 +43,10 @@ class Optimize(object):
         self.wt_nonbonded, self.wt_nonbonded_ids, self.wt_excep = Optimize.build_params(self)
         self.excep_scaling = Optimize.get_exception_scaling(self)
 
-        self.lock_atoms = Optimize.make_lock_list(self, lock_atoms)
+        if len(lock_atoms) > 0:
+            self.lock_atoms = Optimize.make_lock_list(self, lock_atoms)
+        else:
+            self.lock_atoms = []
         self.net_charge = Optimize.get_net_charge(self, self.wt_nonbonded)
 
         # concat all params
@@ -188,6 +191,16 @@ class Optimize(object):
                 opt_params = []
                 for line in f:
                     opt_params.append(float(line.strip('\n')))
+        elif name == 'grad_convg':
+            for replica in range(1, 4, 1):
+                for sampling in range(100, 1100, 100):
+                    self.num_frames = sampling
+                    print('Computing replica {} dynamics with {} steps'.format(replica, sampling))
+                    self.run_dynamics(self.og_all_params)
+                    grad = gradient(copy.deepcopy(self.og_all_params), 1, self)  # 1 here is a dummy variable
+                    print(grad)
+            print('Finished grad convergence test')
+            return
 
         og_all_params = self.og_all_params
         #scale for ploting partial charge difference
