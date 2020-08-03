@@ -1,5 +1,5 @@
 # Ligand Optimiser
-Optimise the atomistic charges or van der Waals parameters of ligand to maximize receptor binding affinity.
+Optimise the atomistic charges or van der Waals parameters of a ligand to maximize receptor binding affinity.
 
 # Installation
 - via conda:
